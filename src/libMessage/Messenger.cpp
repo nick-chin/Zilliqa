@@ -8509,7 +8509,7 @@ bool Messenger::SetConsensusCollectiveSig(
     bytes& dst, const unsigned int offset, const uint32_t consensusID,
     const uint64_t blockNumber, const bytes& blockHash, const uint16_t leaderID,
     const Signature& collectiveSig, const vector<bool>& bitmap,
-    const PairOfKey& leaderKey) {
+    const PairOfKey& leaderKey, const bytes& newAnnouncementMessage) {
   LOG_MARKER();
 
   ConsensusCollectiveSig result;
@@ -8543,6 +8543,21 @@ bool Messenger::SetConsensusCollectiveSig(
   SerializableToProtobufByteArray(leaderKey.second, *result.mutable_pubkey());
   SerializableToProtobufByteArray(signature, *result.mutable_signature());
 
+  if (!newAnnouncementMessage.empty()) {
+    result.set_newannouncement(newAnnouncementMessage.data(),
+                               newAnnouncementMessage.size());
+
+    Signature finalsignature;
+    if (!Schnorr::Sign(newAnnouncementMessage, leaderKey.first,
+                       leaderKey.second, finalsignature)) {
+      LOG_GENERAL(WARNING, "Failed to sign new announcement");
+      return false;
+    }
+
+    SerializableToProtobufByteArray(finalsignature,
+                                    *result.mutable_finalsignature());
+  }
+
   if (!result.IsInitialized()) {
     LOG_GENERAL(WARNING, "ConsensusCollectiveSig initialization failed");
     return false;
@@ -8554,7 +8569,8 @@ bool Messenger::SetConsensusCollectiveSig(
 bool Messenger::GetConsensusCollectiveSig(
     const bytes& src, const unsigned int offset, const uint32_t consensusID,
     const uint64_t blockNumber, const bytes& blockHash, const uint16_t leaderID,
-    vector<bool>& bitmap, Signature& collectiveSig, const PubKey& leaderKey) {
+    vector<bool>& bitmap, Signature& collectiveSig, const PubKey& leaderKey,
+    bytes& newAnnouncement) {
   LOG_MARKER();
 
   if (offset >= src.size()) {
@@ -8592,9 +8608,6 @@ bool Messenger::GetConsensusCollectiveSig(
                     return left == (unsigned char)right;
                   })) {
     bytes remoteBlockHash(tmpBlockHash.size());
-    std::copy(tmpBlockHash.begin(), tmpBlockHash.end(),
-              remoteBlockHash.begin());
-
     std::string blockhashStr, remoteblockhashStr;
     if (!DataConversion::Uint8VecToHexStr(blockHash, blockhashStr)) {
       return false;
@@ -8635,6 +8648,22 @@ bool Messenger::GetConsensusCollectiveSig(
   if (!Schnorr::Verify(tmp, signature, leaderKey)) {
     LOG_GENERAL(WARNING, "Invalid signature in collectivesig");
     return false;
+  }
+
+  if (!result.newannouncement().empty()) {
+    newAnnouncement.resize(result.newannouncement().size());
+    std::copy(result.newannouncement().begin(), result.newannouncement().end(),
+              newAnnouncement.begin());
+
+    Signature finalsignature;
+
+    PROTOBUFBYTEARRAYTOSERIALIZABLE(result.finalsignature(), finalsignature);
+
+    if (!Schnorr::Verify(newAnnouncement, finalsignature, leaderKey)) {
+      LOG_GENERAL(WARNING, "Invalid signature in new announcement. leaderID = "
+                               << leaderID << " leaderKey = " << leaderKey);
+      return false;
+    }
   }
 
   return true;

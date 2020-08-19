@@ -1571,6 +1571,29 @@ bool Node::ProcessSubmitMissingTxn(const bytes& message, unsigned int offset,
     return false;
   }
 
+  if (m_prePrepRunning) {
+    lock_guard<mutex> g(m_mutexPrePrepMissingTxnhashes);
+    if (txns.size() != m_prePrepMissingTxnhashes.size()) {
+      LOG_GENERAL(WARNING,
+                  "Expected and received number of missing txns mismatched!");
+      return false;
+    }
+    unsigned int numfound = 0;
+    for (const auto& missingtxn : m_prePrepMissingTxnhashes) {
+      for (const auto& receivedtxn : txns) {
+        if (missingtxn == receivedtxn.GetTranID()) {
+          ++numfound;
+        }
+      }
+    }
+    if (numfound != m_prePrepMissingTxnhashes.size()) {
+      LOG_GENERAL(WARNING, "Didn't received all missing txns!");
+      return false;
+    }
+
+    m_prePrepMissingTxnhashes.clear();
+  }
+
   lock_guard<mutex> g(m_mutexCreatedTransactions);
   for (const auto& submittedTxn : txns) {
     MempoolInsertionStatus status;

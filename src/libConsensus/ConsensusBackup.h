@@ -36,6 +36,10 @@ typedef std::function<bool(const bytes& input, unsigned int offset,
                            bytes& messageToCosign)>
     MsgContentValidatorFunc;
 
+typedef std::function<bool()> CollectiveSigReadinessFunc;
+typedef std::function<void()> PostPrePrepValidationFunc;
+typedef std::function<bool()> PostFailurePrePrepValidationFunc;
+
 /// Implements the functionality for the consensus committee backup.
 class ConsensusBackup : public ConsensusCommon {
  private:
@@ -52,6 +56,10 @@ class ConsensusBackup : public ConsensusCommon {
 
   // Function handler for validating message content
   MsgContentValidatorFunc m_msgContentValidator;
+  MsgContentValidatorFunc m_prepPrepMsgContentValidator;
+  PostPrePrepValidationFunc m_postPrePrepContentValidation;
+  CollectiveSigReadinessFunc m_readinessFunc;
+  // PostFailurePrePrepValidationFunc m_postFailurePrepMsgContentValidation;
 
   // Internal functions
   bool CheckState(Action action);
@@ -98,8 +106,20 @@ class ConsensusBackup : public ConsensusCommon {
       uint8_t ins_byte,              // instruction byte representing consensus
                                      // messages for the Executable class
       MsgContentValidatorFunc
-          msg_validator  // function handler for validating the content of
-                         // message for consensus (e.g., Tx block)
+          msg_validator,  // function handler for validating the complete
+                          // content of message for consensus (e.g., Tx block)
+      MsgContentValidatorFunc preprep_msg_validator =
+          nullptr,  // function handler for validating the preprep content of
+                    // message for consensus (e.g., Tx block)
+      PostPrePrepValidationFunc post_preprep_validation =
+          nullptr,  // function handler to execute
+                    // any post activity after validation of preprep
+                    // message
+      //      PostFailurePrePrepValidationFunc post_failed_validation = nullptr,
+      //      // function to give a chance to check
+      // if the commit failure is resolved before before changing to ERROR state
+      CollectiveSigReadinessFunc collsig_readiness_func =
+          nullptr  // function handler for waits until some cond is met
   );
 
   /// Destructor.

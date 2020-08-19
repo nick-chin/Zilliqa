@@ -165,6 +165,7 @@ class Node : public Executable {
   // txn proc timeout related
   std::mutex m_mutexCVTxnProcFinished;
   std::condition_variable cv_TxnProcFinished;
+  bool m_txnProcessingFinished;
 
   std::mutex m_mutexMicroBlockConsensusBuffer;
   std::unordered_map<uint32_t, VectorOfNodeMsg> m_microBlockConsensusBuffer;
@@ -314,6 +315,13 @@ class Node : public Executable {
 
   bool RunConsensusOnMicroBlockWhenShardLeader();
   bool RunConsensusOnMicroBlockWhenShardBackup();
+  bool PrePrepMicroBlockValidator(const bytes& message, unsigned int offset,
+                                  bytes& errorMsg, const uint32_t consensusID,
+                                  const uint64_t blockNumber,
+                                  const bytes& blockHash,
+                                  const uint16_t leaderID,
+                                  const PubKey& leaderKey,
+                                  bytes& messageToCosign);
   bool ComposeMicroBlockMessageForSender(bytes& microblock_message) const;
   bool MicroBlockValidator(const bytes& message, unsigned int offset,
                            bytes& errorMsg, const uint32_t consensusID,
@@ -329,6 +337,8 @@ class Node : public Executable {
   bool CheckMicroBlockTxnRootHash();
   bool CheckMicroBlockStateDeltaHash();
   bool CheckMicroBlockTranReceiptHash();
+
+  bool ComposePrePrepMicroBlock(const uint64_t& microblock_gas_limit);
 
   void NotifyTimeout(bool& txnProcTimeout);
   bool VerifyTxnsOrdering(const std::vector<TxnHash>& tranHashes,
@@ -417,7 +427,21 @@ class Node : public Executable {
   std::mutex m_mutexShardMember;
   std::shared_ptr<DequeOfNode> m_myShardMembers;
 
+  std::mutex m_mutexPrePrepTxnhashes;
+  std::vector<TxnHash> m_prePrepTxnhashes;
+
+  std::mutex m_mutexPrePrepMissingTxnhashes;
+  std::vector<TxnHash> m_prePrepMissingTxnhashes;
+
   std::shared_ptr<MicroBlock> m_microblock;
+  // used only by leader
+  std::shared_ptr<MicroBlock> m_prePrepMicroblock;
+
+  bool m_completeMicroblockReady;
+  std::condition_variable m_cvCompleteMicroblockReady;
+
+  // used only by backup
+  bool m_prePrepRunning;
 
   std::mutex m_mutexCVMicroBlockMissingTxn;
   std::condition_variable cv_MicroBlockMissingTxn;

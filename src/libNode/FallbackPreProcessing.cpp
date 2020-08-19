@@ -526,7 +526,7 @@ bool Node::RunConsensusOnFallbackWhenLeader() {
         *m_pendingFallbackBlock, messageToCosign);
   };
 
-  cl->StartConsensus(announcementGeneratorFunc);
+  cl->StartConsensus(announcementGeneratorFunc, nullptr, BROADCAST_GOSSIP_MODE);
 
   return true;
 }

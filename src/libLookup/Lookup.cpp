@@ -435,6 +435,7 @@ bool Lookup::GenTxnToSend(size_t num_txn,
                                                  : m_myGenesisAccounts2;
 
   if (myGenesisAccounts.empty()) {
+    LOG_GENERAL(INFO, "Empty genesis wallet!");
     return false;
   }
   const unsigned int NUM_TXN_TO_DS_PER_ACCOUNT =

@@ -805,13 +805,37 @@ bool ConsensusLeader::GenerateCollectiveSigMessage(bytes& collectivesig,
     return false;
   }
 
+  bytes new_announcement_message;
+  if (collSigAnnouncementGeneratorFunc) {
+    // Wait and fetch new announcement message once ready
+    // ==================================
+    new_announcement_message = {m_classByte, m_insByte,
+                                ConsensusMessageType::ANNOUNCE};
+
+    if (!collSigAnnouncementGeneratorFunc(
+            new_announcement_message, MessageOffset::BODY + sizeof(uint8_t),
+            m_consensusID, m_blockNumber, m_blockHash, m_myID,
+            make_pair(m_myPrivKey, GetCommitteeMember(m_myID).first),
+            m_messageToCosign)) {
+      LOG_GENERAL(WARNING, "Failed to generate new announcement message");
+      return false;
+    }
+    // Leader will have new m_messageToCosign as per new announcement.
+
+    // However, CS1 + B1 is still one for older value of m_messageToCosign
+    // Backup is expected to validate CS1 + B1 against older m_messageToCosign.
+    // And should therafter use new m_messageToCosign for commit phase and later
+    // phase.
+  }
+
   // Assemble collective signature message body
   // ==========================================
 
   if (!Messenger::SetConsensusCollectiveSig(
           collectivesig, offset, m_consensusID, m_blockNumber, m_blockHash,
           m_myID, subset.collectiveSig, subset.responseMap,
-          make_pair(m_myPrivKey, GetCommitteeMember(m_myID).first))) {
+          make_pair(m_myPrivKey, GetCommitteeMember(m_myID).first),
+          new_announcement_message)) {
     LOG_GENERAL(WARNING, "Messenger::SetConsensusCollectiveSig failed.");
     return false;
   }
@@ -895,6 +919,7 @@ ConsensusLeader::~ConsensusLeader() {}
 
 bool ConsensusLeader::StartConsensus(
     const AnnouncementGeneratorFunc& announcementGeneratorFunc,
+    const AnnouncementGeneratorFunc& newAnnouncementGeneratorFunc,
     bool useGossipProto) {
   LOG_MARKER();
 
@@ -918,6 +943,8 @@ bool ConsensusLeader::StartConsensus(
     LOG_GENERAL(WARNING, "Failed to generate announcement message");
     return false;
   }
+
+  collSigAnnouncementGeneratorFunc = newAnnouncementGeneratorFunc;
 
   // Update internal state
   // =====================

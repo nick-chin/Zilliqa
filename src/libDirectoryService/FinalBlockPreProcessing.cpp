@@ -300,7 +300,7 @@ bool DirectoryService::RunConsensusOnFinalBlockWhenDSPrimary() {
         *m_finalBlock, m_mediator.m_node->m_microblock, messageToCosign);
   };
 
-  cl->StartConsensus(announcementGeneratorFunc, BROADCAST_GOSSIP_MODE);
+  cl->StartConsensus(announcementGeneratorFunc, nullptr, BROADCAST_GOSSIP_MODE);
 
   return true;
 }
