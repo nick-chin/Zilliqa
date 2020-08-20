@@ -170,6 +170,10 @@ class Node : public Executable {
   std::mutex m_mutexMicroBlockConsensusBuffer;
   std::unordered_map<uint32_t, VectorOfNodeMsg> m_microBlockConsensusBuffer;
 
+  // soft confirmed transactions
+  std::mutex m_mutexSoftConfirmedTxns;
+  std::unordered_map<TxnHash, TransactionWithReceipt> m_softConfirmedTxns;
+
   // Fallback Consensus
   std::mutex m_mutexFallbackTimer;
   uint32_t m_fallbackTimer{};
@@ -398,6 +402,9 @@ class Node : public Executable {
   /// Initilize the add genesis block and account
   void AddGenesisInfo(SyncType syncType);
 
+  void SoftConfirmForwardedTransactions(const MBnForwardedTxnEntry& entry);
+  void ClearSoftConfirmedTransactions();
+
  public:
   enum NodeState : unsigned char {
     POW_SUBMISSION = 0x00,
@@ -575,7 +582,7 @@ class Node : public Executable {
   bool StartRetrieveHistory(const SyncType syncType,
                             bool rejoiningAfterRecover = false);
 
-  bool CheckIntegrity(bool fromIsolatedBinary = false);
+  bool CheckIntegrity(const bool fromValidateDBBinary = false);
   void PutProcessedInUnconfirmedTxns();
 
   bool SendPendingTxnToLookup();
@@ -592,8 +599,8 @@ class Node : public Executable {
   /// Add new block into tx blockchain
   void AddBlock(const TxBlock& block);
 
-  void UpdateDSCommitteeComposition(DequeOfNode& dsComm,
-                                    const DSBlock& dsblock);
+  void UpdateDSCommitteeComposition(DequeOfNode& dsComm, const DSBlock& dsblock,
+                                    const bool showLogs = true);
   void UpdateDSCommitteeComposition(DequeOfNode& dsComm, const DSBlock& dsblock,
                                     MinerInfoDSComm& minerInfo);
 
@@ -700,7 +707,8 @@ class Node : public Executable {
   void UpdateDSCommitteeCompositionAfterVC(const VCBlock& vcblock,
                                            DequeOfNode& dsComm);
   void UpdateRetrieveDSCommitteeCompositionAfterVC(const VCBlock& vcblock,
-                                                   DequeOfNode& dsComm);
+                                                   DequeOfNode& dsComm,
+                                                   const bool showLogs = true);
 
   void UpdateProcessedTransactions();
 
@@ -756,6 +764,8 @@ class Node : public Executable {
 
   void CleanLocalRawStores();
 
+  bool GetSoftConfirmedTransaction(const TxnHash& txnHash,
+                                   TxBodySharedPtr& tptr);
   void WaitForNextTwoBlocksBeforeRejoin();
 
   bool UpdateShardNodeIdentity();
