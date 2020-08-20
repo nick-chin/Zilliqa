@@ -303,7 +303,7 @@ bool Node::OnNodeMissingTxns(const bytes& errorMsg, const unsigned int offset,
     }
   */
 
-#if 1
+#if 0
   return true;
 #endif
   if (!Messenger::SetTransactionArray(tx_message, cur_offset, txns)) {

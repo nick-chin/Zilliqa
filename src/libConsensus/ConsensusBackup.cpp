@@ -110,16 +110,10 @@ bool ConsensusBackup::ProcessMessageAnnounce(const bytes& announcement,
       }
     }
 
-    // Validation of proposed announcement has failed but still run background
-    // task if any.
-    if (m_postPrePrepContentValidation) {
-      m_postPrePrepContentValidation();
-    }
-
     return false;
   }
 
-  // Validation of propoed validation is successful. Start executing background
+  // Validation of round 1 announcement is successful. Start executing background
   // task if any.
   if (m_postPrePrepContentValidation) {
     m_postPrePrepContentValidation();
@@ -372,6 +366,8 @@ bool ConsensusBackup::ProcessMessageCollectiveSigCore(
                             m_blockNumber, m_blockHash, m_leaderID,
                             GetCommitteeMember(m_leaderID).first,
                             m_messageToCosign)){
+                              LOG_GENERAL(WARNING, "Message validation failed");
+                              m_state = ERROR;
                               return false;
                             }
       // messageToCosig = part of new announcement message
