@@ -113,8 +113,8 @@ bool ConsensusBackup::ProcessMessageAnnounce(const bytes& announcement,
     return false;
   }
 
-  // Validation of round 1 announcement is successful. Start executing background
-  // task if any.
+  // Validation of round 1 announcement is successful. Start executing
+  // background task if any.
   if (m_postPrePrepContentValidation) {
     m_postPrePrepContentValidation();
   }
@@ -362,14 +362,14 @@ bool ConsensusBackup::ProcessMessageCollectiveSigCore(
       bytes errorMsg;
       // Following will get us m_microblock. Remove this comment later.
       bytes newMessageToCosig;
-      if(!m_msgContentValidator(newAnnouncementMsg, offset, errorMsg, m_consensusID,
-                            m_blockNumber, m_blockHash, m_leaderID,
-                            GetCommitteeMember(m_leaderID).first,
-                            m_messageToCosign)){
-                              LOG_GENERAL(WARNING, "Message validation failed");
-                              m_state = ERROR;
-                              return false;
-                            }
+      if (!m_msgContentValidator(
+              newAnnouncementMsg, offset, errorMsg, m_consensusID,
+              m_blockNumber, m_blockHash, m_leaderID,
+              GetCommitteeMember(m_leaderID).first, m_messageToCosign)) {
+        LOG_GENERAL(WARNING, "Message validation failed");
+        m_state = ERROR;
+        return false;
+      }
       // messageToCosig = part of new announcement message
     }
     m_collectiveSig.Serialize(m_messageToCosign, m_messageToCosign.size());

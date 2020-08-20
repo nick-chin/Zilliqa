@@ -379,7 +379,7 @@ void Node::ProcessTransactionWhenShardLeader(
     lock_guard<mutex> g(m_mutexCreatedTransactions);
     t_createdTxns = m_createdTxns;
   }
-  
+
   map<Address, map<uint64_t, Transaction>> t_addrNonceTxnMap;
   t_processedTransactions.clear();
   m_TxnOrder.clear();
