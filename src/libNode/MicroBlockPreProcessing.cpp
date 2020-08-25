@@ -151,8 +151,8 @@ bool Node::ComposeMicroBlock(const uint64_t& microblock_gas_limit) {
                 << m_microblock->GetHeader().GetNumTxs()
                 << " transactions for epoch " << m_mediator.m_currentEpochNum);
 
-  m_completeMicroblockReady = true;
-  m_cvCompleteMicroblockReady.notify_all();
+  m_completeMicroBlockReady = true;
+  m_cvCompleteMicroBlockReady.notify_all();
   return true;
 }
 
@@ -1039,6 +1039,86 @@ void Node::UpdateBalanceForPreGeneratedAccounts() {
                         << counter);
 }
 
+void Node::StartTxnProcessingThread() {
+  LOG_MARKER();
+  auto t = [this]() -> void {
+    if (!m_mediator.GetIsVacuousEpoch() &&
+        ((m_mediator.m_dsBlockChain.GetLastBlock()
+                  .GetHeader()
+                  .GetDifficulty() >= TXN_SHARD_TARGET_DIFFICULTY &&
+          m_mediator.m_dsBlockChain.GetLastBlock()
+                  .GetHeader()
+                  .GetDSDifficulty() >= TXN_DS_TARGET_DIFFICULTY) ||
+         m_mediator.m_dsBlockChain.GetLastBlock().GetHeader().GetBlockNum() >=
+             TXN_DS_TARGET_NUM)) {
+      m_mediator.m_node->m_prePrepRunning = false;
+      if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE) {
+        m_mediator.m_node->ProcessTransactionWhenShardBackup(
+            SHARD_MICROBLOCK_GAS_LIMIT);
+        if (!AccountStore::GetInstance().SerializeDelta()) {
+          LOG_GENERAL(WARNING, "AccountStore::SerializeDelta failed");
+        }
+      } else {
+        m_mediator.m_node->ProcessTransactionWhenShardBackup(
+            m_mediator.m_ds->m_microBlockGasLimit);
+      }
+    }
+  };
+  DetachedFunction(1, t);
+}
+
+bool Node::WaitUntilTxnProcessingDone() {
+  LOG_MARKER();
+  // wait for txn processing being ready by me (backup)
+  unique_lock<mutex> lock(m_mutexCVTxnProcFinished);
+  int timeout_time = std::max(
+      0,
+      ((int)MICROBLOCK_TIMEOUT -
+       ((int)TX_DISTRIBUTE_TIME_IN_MS + (int)ANNOUNCEMENT_DELAY_IN_MS) / 1000 -
+       (int)CONSENSUS_OBJECT_TIMEOUT));
+  LOG_GENERAL(INFO,
+              "The overall timeout for completing txns processing will be "
+                  << timeout_time << " seconds");
+
+  if (!m_txnProcessingFinished) {
+    if (cv_TxnProcFinished.wait_for(lock, chrono::seconds(timeout_time)) ==
+        std::cv_status::timeout) {
+      // timed out
+      LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
+                "Timed out waiting for txn processing being completed. May "
+                "need to adjust timeouts.");
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Node::WaitUntilCompleMicroBlockIsReady() {
+  LOG_MARKER();
+  unique_lock<mutex> lock(m_mutexMicroBlock);
+  int timeout_time = std::max(
+      0,
+      ((int)MICROBLOCK_TIMEOUT -
+       ((int)TX_DISTRIBUTE_TIME_IN_MS + (int)ANNOUNCEMENT_DELAY_IN_MS) / 1000 -
+       (int)CONSENSUS_OBJECT_TIMEOUT));
+  LOG_GENERAL(INFO,
+              "The overall timeout for creating complete microblock will be "
+                  << timeout_time << " seconds");
+
+  if (!m_completeMicroBlockReady) {
+    if (m_cvCompleteMicroBlockReady.wait_for(
+            lock, chrono::seconds(timeout_time)) == std::cv_status::timeout) {
+      // timed out
+      LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
+                "Timed out waiting for complete microblock being ready.");
+      m_completeMicroBlockReady = false;
+      return false;
+    }
+  }
+
+  return true;
+}
+
 bool Node::RunConsensusOnMicroBlockWhenShardLeader() {
   LOG_MARKER();
 
@@ -1078,13 +1158,14 @@ bool Node::RunConsensusOnMicroBlockWhenShardLeader() {
   }
   */
 
+  m_completeMicroBlockReady = false;
+
   // composed preprep microblock stored in m_microblock
   if (!ComposePrePrepMicroBlock(SHARD_MICROBLOCK_GAS_LIMIT)) {
     LOG_GENERAL(WARNING, "Unable to create pre-prep microblock");
+    m_prePrepMicroblock = nullptr;
     return false;
   }
-
-  m_completeMicroblockReady = false;
 
   // m_consensusID = 0;
   m_consensusBlockHash = m_mediator.m_txBlockChain.GetLastBlock()
@@ -1156,26 +1237,8 @@ bool Node::RunConsensusOnMicroBlockWhenShardLeader() {
              const PairOfKey& leaderKey,
              bytes& messageToCosign) mutable -> bool {
     // wait for complete microblock being ready by me (leader)
-    unique_lock<mutex> lock(m_mutexMicroBlock);
-    int timeout_time = std::max(
-        0, ((int)MICROBLOCK_TIMEOUT -
-            ((int)TX_DISTRIBUTE_TIME_IN_MS + (int)ANNOUNCEMENT_DELAY_IN_MS) /
-                1000 -
-            (int)CONSENSUS_OBJECT_TIMEOUT));
-    LOG_GENERAL(INFO,
-                "The overall timeout for creating complete microblock will be "
-                    << timeout_time << " seconds");
-
-    if (!m_completeMicroblockReady) {
-      if (m_cvCompleteMicroblockReady.wait_for(
-              lock, chrono::seconds(timeout_time)) == std::cv_status::timeout) {
-        // timed out
-        LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
-                  "Timed out waiting for complete microblock being ready. May "
-                  "need to adjust timeouts.");
-        m_completeMicroblockReady = false;
-        return false;
-      }
+    if (!WaitUntilTxnProcessingDone()) {
+      return false;
     }
 
     return Messenger::SetNodeMicroBlockAnnouncement(
@@ -1192,6 +1255,8 @@ bool Node::RunConsensusOnMicroBlockWhenShardLeader() {
 
   cl->StartConsensus(preprepAnnouncementGeneratorFunc,
                      newMBAnnouncementReadinessFunc, BROADCAST_GOSSIP_MODE);
+
+  SetState(MICROBLOCK_CONSENSUS);
 
   if (m_mediator.ToProcessTransaction()) {
     ProcessTransactionWhenShardLeader(SHARD_MICROBLOCK_GAS_LIMIT);
@@ -1264,25 +1329,7 @@ bool Node::RunConsensusOnMicroBlockWhenShardBackup() {
   };
 
   auto postPreprepValidationFunc = [this]() -> void {
-    auto startTxnProc = [this]() -> void {
-      if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE &&
-          !m_mediator.GetIsVacuousEpoch() &&
-          ((m_mediator.m_dsBlockChain.GetLastBlock()
-                    .GetHeader()
-                    .GetDifficulty() >= TXN_SHARD_TARGET_DIFFICULTY &&
-            m_mediator.m_dsBlockChain.GetLastBlock()
-                    .GetHeader()
-                    .GetDSDifficulty() >= TXN_DS_TARGET_DIFFICULTY) ||
-           m_mediator.m_dsBlockChain.GetLastBlock().GetHeader().GetBlockNum() >=
-               TXN_DS_TARGET_NUM)) {
-        m_prePrepRunning = false;
-        ProcessTransactionWhenShardBackup(SHARD_MICROBLOCK_GAS_LIMIT);
-        if (!AccountStore::GetInstance().SerializeDelta()) {
-          LOG_GENERAL(WARNING, "AccountStore::SerializeDelta failed");
-        }
-      }
-    };
-    DetachedFunction(1, startTxnProc);
+    StartTxnProcessingThread();
   };
 
   /* auto postFailedPreprepValidationFunc = [this]() -> bool {
@@ -1300,27 +1347,7 @@ bool Node::RunConsensusOnMicroBlockWhenShardBackup() {
 
   auto txnProcessingReadinessfunc = [this]() -> bool {
     // wait for txn processing being ready by me (backup)
-    unique_lock<mutex> lock(m_mutexCVTxnProcFinished);
-    int timeout_time = std::max(
-        0, ((int)MICROBLOCK_TIMEOUT -
-            ((int)TX_DISTRIBUTE_TIME_IN_MS + (int)ANNOUNCEMENT_DELAY_IN_MS) /
-                1000 -
-            (int)CONSENSUS_OBJECT_TIMEOUT));
-    LOG_GENERAL(INFO,
-                "The overall timeout for completing txns processing will be "
-                    << timeout_time << " seconds");
-
-    if (!m_txnProcessingFinished) {
-      if (cv_TxnProcFinished.wait_for(lock, chrono::seconds(timeout_time)) ==
-          std::cv_status::timeout) {
-        // timed out
-        LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
-                  "Timed out waiting for txn processing being completed. May "
-                  "need to adjust timeouts.");
-        return false;
-      }
-    }
-    return true;
+    return WaitUntilTxnProcessingDone();
   };
 
   DequeOfNode peerList;
@@ -1351,6 +1378,8 @@ bool Node::RunConsensusOnMicroBlockWhenShardBackup() {
   }
 
   m_prePrepRunning = true;
+
+  SetState(MICROBLOCK_CONSENSUS);
 
   return true;
 }
@@ -1389,8 +1418,6 @@ bool Node::RunConsensusOnMicroBlock() {
       return false;
     }
   }
-
-  SetState(MICROBLOCK_CONSENSUS);
 
   CommitMicroBlockConsensusBuffer();
 

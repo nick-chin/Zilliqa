@@ -146,6 +146,8 @@ class DirectoryService : public Executable {
 
   // Final block consensus variables
   std::shared_ptr<TxBlock> m_finalBlock;
+  bool m_completeFinalBlockReady;
+  std::condition_variable m_cvCompleteFinalBlockReady;
 
   struct MBSubmissionBufferEntry {
     MicroBlock m_microBlock;
@@ -310,6 +312,7 @@ class DirectoryService : public Executable {
       std::vector<PubKey>& removeDSNodePubkeys);
 
   // internal calls from RunConsensusOnDSBlock
+  bool WaitUntilCompleteFinalBlockIsReady();
   bool RunConsensusOnDSBlockWhenDSPrimary();
   bool RunConsensusOnDSBlockWhenDSBackup();
 
@@ -378,6 +381,15 @@ class DirectoryService : public Executable {
 
   // Sharding consensus validator function
   bool ShardingValidator(const bytes& sharding_structure, bytes& errorMsg);
+
+  // PrePrep Final block consensus validator function
+  bool PrePrepFinalBlockValidator(const bytes& message, unsigned int offset,
+                                  bytes& errorMsg, const uint32_t consensusID,
+                                  const uint64_t blockNumber,
+                                  const bytes& blockHash,
+                                  const uint16_t leaderID,
+                                  const PubKey& leaderKey,
+                                  bytes& messageToCosign);
 
   // Final block consensus validator function
   bool FinalBlockValidator(const bytes& message, unsigned int offset,

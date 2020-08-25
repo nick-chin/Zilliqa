@@ -117,7 +117,6 @@ class Node : public Executable {
 
   bytes m_consensusBlockHash;
   std::pair<uint64_t, CoSignatures> m_lastMicroBlockCoSig;
-  std::mutex m_mutexMicroBlock;
 
   const static uint32_t RECVTXNDELAY_MILLISECONDS = 3000;
   const static unsigned int GOSSIP_RATE = 48;
@@ -342,8 +341,6 @@ class Node : public Executable {
   bool CheckMicroBlockStateDeltaHash();
   bool CheckMicroBlockTranReceiptHash();
 
-  bool ComposePrePrepMicroBlock(const uint64_t& microblock_gas_limit);
-
   void NotifyTimeout(bool& txnProcTimeout);
   bool VerifyTxnsOrdering(const std::vector<TxnHash>& tranHashes,
                           std::vector<TxnHash>& missingtranHashes);
@@ -444,8 +441,8 @@ class Node : public Executable {
   // used only by leader
   std::shared_ptr<MicroBlock> m_prePrepMicroblock;
 
-  bool m_completeMicroblockReady;
-  std::condition_variable m_cvCompleteMicroblockReady;
+  bool m_completeMicroBlockReady;
+  std::condition_variable m_cvCompleteMicroBlockReady;
 
   // used only by backup
   bool m_prePrepRunning;
@@ -467,6 +464,9 @@ class Node : public Executable {
   std::atomic<uint32_t> m_myshardId{};
   std::atomic<bool> m_isPrimary{};
   std::shared_ptr<ConsensusCommon> m_consensusObject;
+
+  // Microblock processing
+  std::mutex m_mutexMicroBlock;
 
   // Finalblock Processing
   std::mutex m_mutexFinalBlock;
@@ -630,8 +630,15 @@ class Node : public Executable {
 
   void CommitPendingTxnBuffer();
 
+  // Used by leader before sending 'collective sig + newannouncement'
+  bool WaitUntilCompleMicroBlockIsReady();
+  // Used by backup before processing 'collective sig + newannouncement'
+  bool WaitUntilTxnProcessingDone();
+
+  void StartTxnProcessingThread();
   void ProcessTransactionWhenShardLeader(const uint64_t& microblock_gas_limit);
   void ProcessTransactionWhenShardBackup(const uint64_t& microblock_gas_limit);
+  bool ComposePrePrepMicroBlock(const uint64_t& microblock_gas_limit);
   bool ComposeMicroBlock(const uint64_t& microblock_gas_limit);
   bool CheckMicroBlockValidity(bytes& errorMsg,
                                const uint64_t& microblock_gas_limit);
