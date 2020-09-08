@@ -217,9 +217,9 @@ bool DirectoryService::WaitUntilCompleteFinalBlockIsReady() {
       return false;
     }
   }
-  LOG_GENERAL(
-        DEBUG, "Complete Final Block is ready to be sent for round 2 consensus");
-  
+  LOG_GENERAL(DEBUG,
+              "Complete Final Block is ready to be sent for round 2 consensus");
+
   return true;
 }
 
@@ -840,7 +840,7 @@ bool DirectoryService::CheckMicroBlockInfo() {
   const auto& microBlockInfos = m_finalBlock->GetMicroBlockInfos();
 
   LOG_GENERAL(INFO,
-              "Total num of microblocks to check: " << microBlockInfos.size())
+              "Total num of microblocks to check: " << microBlockInfos.size());
 
   for (unsigned int i = 0; i < microBlockInfos.size(); i++) {
     // LOG_GENERAL(INFO,
@@ -1039,9 +1039,11 @@ bool DirectoryService::CheckMicroBlockValidity(bytes& errorMsg) {
   if (!ret) {
     m_mediator.m_node->m_microblock = nullptr;
   } else {
-    lock_guard<mutex> g(m_mutexMicroBlocks);
-    m_microBlocks[m_mediator.m_currentEpochNum].emplace(
-        *(m_mediator.m_node->m_microblock));
+    if (!m_mediator.m_node->m_prePrepRunning) {
+      lock_guard<mutex> g(m_mutexMicroBlocks);
+      m_microBlocks[m_mediator.m_currentEpochNum].emplace(
+          *(m_mediator.m_node->m_microblock));
+    }
   }
 
   return ret;
@@ -1134,17 +1136,59 @@ bool DirectoryService::PrePrepFinalBlockValidator(
     const uint32_t consensusID, const uint64_t blockNumber,
     const bytes& blockHash, const uint16_t leaderID, const PubKey& leaderKey,
     bytes& messageToCosign) {
-  LOG_MARKER();
-  if (!FinalBlockValidator(message, offset, errorMsg, consensusID, blockNumber,
-                           blockHash, leaderID, leaderKey, messageToCosign)) {
-    LOG_GENERAL(WARNING, "PrePhase - Finalblock validitation failed")
+  if (LOOKUP_NODE_MODE) {
+    LOG_GENERAL(WARNING,
+                "DirectoryService::FinalBlockValidator not expected to be "
+                "called from LookUp node");
+    return true;
+  }
 
+  LOG_MARKER();
+
+  m_finalBlock.reset(new TxBlock);
+
+  m_mediator.m_node->m_microblock.reset(new MicroBlock());
+
+  if (!Messenger::GetDSFinalBlockAnnouncement(
+          message, offset, consensusID, blockNumber, blockHash, leaderID,
+          leaderKey, *m_finalBlock, m_mediator.m_node->m_microblock,
+          messageToCosign)) {
+    LOG_EPOCH(WARNING, m_mediator.m_currentEpochNum,
+              "Messenger::GetDSFinalBlockAnnouncement failed");
+    m_mediator.m_node->m_microblock = nullptr;
     return false;
   }
-  m_mediator.m_node->m_prePrepTxnhashes.clear();
-  m_mediator.m_node->m_prePrepTxnhashes =
-      m_mediator.m_node->m_microblock->GetTranHashes();
-  m_mediator.m_node->m_microblock = nullptr;
+
+  if (m_mediator.m_node->m_microblock != nullptr) {
+    if (!CheckMicroBlockValidity(errorMsg)) {
+      LOG_GENERAL(WARNING, "PrePrep - DS CheckMicroBlockValidity Failed");
+      if (m_consensusObject->GetConsensusErrorCode() ==
+          ConsensusCommon::MISSING_TXN) {
+        errorMsg.insert(errorMsg.begin(), DSMBMISSINGTXN);
+      } else {
+        m_consensusObject->SetConsensusErrorCode(
+            ConsensusCommon::INVALID_DS_MICROBLOCK);
+        errorMsg.insert(errorMsg.begin(), CHECKMICROBLOCK);
+      }
+      return false;
+    }
+    // currently unused. but can be used in future.
+    m_mediator.m_node->m_prePrepTxnhashes.clear();
+    m_mediator.m_node->m_prePrepTxnhashes =
+        m_mediator.m_node->m_microblock->GetTranHashes();
+    m_mediator.m_node->m_microblock = nullptr;
+  }
+
+  string finalblockPrevHashStr;
+  if (!DataConversion::charArrToHexStr(
+          m_finalBlock->GetHeader().GetPrevHash().asArray(),
+          finalblockPrevHashStr)) {
+    return false;
+  }
+  LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
+            "PrePrep Final block " << m_finalBlock->GetHeader().GetBlockNum()
+                                   << " received with prevhash 0x"
+                                   << finalblockPrevHashStr);
 
   return true;
 }

@@ -1816,6 +1816,7 @@ bool Node::PrePrepMicroBlockValidator(
 
     return false;
   }
+  // currently unused. but can be used in future.
   m_prePrepTxnhashes.clear();
   m_prePrepTxnhashes = m_microblock->GetTranHashes();
   m_microblock = nullptr;
