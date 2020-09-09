@@ -215,10 +215,16 @@ bool Node::ComposePrePrepMicroBlock(const uint64_t& microblock_gas_limit) {
 
   LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
             "Creating new preprep-micro block")
+  StateHash stateDeltaHash;
+  // if ds node, its expected to have statedelta changes from mbs received from
+  // shard.
+  if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE) {
+    stateDeltaHash = AccountStore::GetInstance().GetStateDeltaHash();
+  }
   m_prePrepMicroblock.reset(new MicroBlock(
       MicroBlockHeader(
           shardId, gasLimit, gasUsed, rewards, m_mediator.m_currentEpochNum,
-          {txRootHash, StateHash(), TxnHash()}, numTxs, minerPubKey,
+          {txRootHash, stateDeltaHash, TxnHash()}, numTxs, minerPubKey,
           m_mediator.m_dsBlockChain.GetLastBlock().GetHeader().GetBlockNum(),
           version, committeeHash, prevHash),
       tranHashes, CoSignatures()));
