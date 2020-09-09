@@ -631,7 +631,7 @@ class Node : public Executable {
   void CommitPendingTxnBuffer();
 
   // Used by leader before sending 'collective sig + newannouncement'
-  bool WaitUntilCompleMicroBlockIsReady();
+  bool WaitUntilCompleteMicroBlockIsReady();
   // Used by backup before processing 'collective sig + newannouncement'
   bool WaitUntilTxnProcessingDone();
 

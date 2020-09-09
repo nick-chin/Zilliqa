@@ -1080,7 +1080,7 @@ bool Node::WaitUntilTxnProcessingDone() {
               "The overall timeout for completing txns processing will be "
                   << timeout_time << " seconds");
 
-  if (!m_txnProcessingFinished) {
+  while (!m_txnProcessingFinished) {
     if (cv_TxnProcFinished.wait_for(lock, chrono::seconds(timeout_time)) ==
         std::cv_status::timeout) {
       // timed out
@@ -1093,7 +1093,7 @@ bool Node::WaitUntilTxnProcessingDone() {
   return true;
 }
 
-bool Node::WaitUntilCompleMicroBlockIsReady() {
+bool Node::WaitUntilCompleteMicroBlockIsReady() {
   LOG_MARKER();
   unique_lock<mutex> lock(m_mutexMicroBlock);
   int timeout_time = std::max(
@@ -1237,7 +1237,7 @@ bool Node::RunConsensusOnMicroBlockWhenShardLeader() {
              const PairOfKey& leaderKey,
              bytes& messageToCosign) mutable -> bool {
     // wait for complete microblock being ready by me (leader)
-    if (!WaitUntilTxnProcessingDone()) {
+    if (!WaitUntilCompleteMicroBlockIsReady()) {
       return false;
     }
 
