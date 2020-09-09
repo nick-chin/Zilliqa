@@ -218,7 +218,7 @@ bool Node::ComposePrePrepMicroBlock(const uint64_t& microblock_gas_limit) {
   StateHash stateDeltaHash;
   // if ds node, its expected to have statedelta changes from mbs received from
   // shard.
-  if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE) {
+  if (m_mediator.m_ds->m_mode != DirectoryService::Mode::IDLE) {
     stateDeltaHash = AccountStore::GetInstance().GetStateDeltaHash();
   }
   m_prePrepMicroblock.reset(new MicroBlock(
