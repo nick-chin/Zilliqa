@@ -1048,6 +1048,7 @@ void Node::UpdateBalanceForPreGeneratedAccounts() {
 void Node::StartTxnProcessingThread() {
   LOG_MARKER();
   auto t = [this]() -> void {
+    m_mediator.m_node->m_prePrepRunning = false;
     if (!m_mediator.GetIsVacuousEpoch() &&
         ((m_mediator.m_dsBlockChain.GetLastBlock()
                   .GetHeader()
@@ -1057,7 +1058,6 @@ void Node::StartTxnProcessingThread() {
                   .GetDSDifficulty() >= TXN_DS_TARGET_DIFFICULTY) ||
          m_mediator.m_dsBlockChain.GetLastBlock().GetHeader().GetBlockNum() >=
              TXN_DS_TARGET_NUM)) {
-      m_mediator.m_node->m_prePrepRunning = false;
       if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE) {
         m_mediator.m_node->ProcessTransactionWhenShardBackup(
             SHARD_MICROBLOCK_GAS_LIMIT);
@@ -1163,7 +1163,6 @@ bool Node::RunConsensusOnMicroBlockWhenShardLeader() {
     return false;
   }
   */
-
   m_completeMicroBlockReady = false;
 
   // composed preprep microblock stored in m_microblock

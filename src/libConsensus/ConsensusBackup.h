@@ -56,7 +56,7 @@ class ConsensusBackup : public ConsensusCommon {
 
   // Function handler for validating message content
   MsgContentValidatorFunc m_msgContentValidator;
-  MsgContentValidatorFunc m_prepPrepMsgContentValidator;
+  MsgContentValidatorFunc m_prePrepMsgContentValidator;
   PostPrePrepValidationFunc m_postPrePrepContentValidation;
   CollectiveSigReadinessFunc m_readinessFunc;
   // PostFailurePrePrepValidationFunc m_postFailurePrepMsgContentValidation;

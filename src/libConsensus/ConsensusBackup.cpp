@@ -78,8 +78,8 @@ bool ConsensusBackup::ProcessMessageAnnounce(const bytes& announcement,
   bytes errorMsg;
   // Following will get us m_prepPrepMicroblock. Remove this comment later.
   MsgContentValidatorFunc func = m_msgContentValidator;
-  if (m_prepPrepMsgContentValidator) {
-    func = m_prepPrepMsgContentValidator;
+  if (m_prePrepMsgContentValidator) {
+    func = m_prePrepMsgContentValidator;
   }
   if (!func(announcement, offset, errorMsg, m_consensusID, m_blockNumber,
             m_blockHash, m_leaderID, GetCommitteeMember(m_leaderID).first,
@@ -446,7 +446,7 @@ ConsensusBackup::ConsensusBackup(
                       committee, class_byte, ins_byte),
       m_leaderID(leader_id),
       m_msgContentValidator(move(msg_validator)),
-      m_prepPrepMsgContentValidator(move(preprep_msg_validator)),
+      m_prePrepMsgContentValidator(move(preprep_msg_validator)),
       m_postPrePrepContentValidation(move(post_preprep_validation)),
       //      m_postFailurePrepMsgContentValidation(move(post_failed_validation)),
       m_readinessFunc(move(collsig_readiness_func)) {

@@ -293,6 +293,7 @@ bool DirectoryService::RunConsensusOnFinalBlockWhenDSPrimary() {
         *(m_mediator.m_node->m_prePrepMicroblock));
   }
 
+  m_mediator.m_node->m_prePrepRunning = false;
   m_completeFinalBlockReady = false;
 
 #ifdef VC_TEST_FB_SUSPEND_1
@@ -1232,12 +1233,13 @@ bool DirectoryService::RunConsensusOnFinalBlockWhenDSBackup() {
     m_mediator.m_node->ProcessTransactionWhenShardBackup(m_microBlockGasLimit);
   }*/
 
-  LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
-            "I am a backup DS node. Waiting for final block announcement. "
-            "Leader is at index  "
-                << GetConsensusLeaderID() << " "
-                << m_mediator.m_DSCommittee->at(GetConsensusLeaderID()).second
-                << " my consensus id is " << m_consensusMyID);
+  LOG_EPOCH(
+      INFO, m_mediator.m_currentEpochNum,
+      "I am a backup DS node. Waiting for PrePrep Final block announcement. "
+      "Leader is at index  "
+          << GetConsensusLeaderID() << " "
+          << m_mediator.m_DSCommittee->at(GetConsensusLeaderID()).second
+          << " my consensus id is " << m_consensusMyID);
 
   // Create new consensus object
   m_consensusBlockHash =
@@ -1284,6 +1286,8 @@ bool DirectoryService::RunConsensusOnFinalBlockWhenDSBackup() {
     return m_mediator.m_node->WaitUntilTxnProcessingDone();
   };
 
+  m_mediator.m_node->m_prePrepRunning = true;
+
   m_consensusObject.reset(new ConsensusBackup(
       m_mediator.m_consensusID, m_mediator.m_currentEpochNum,
       m_consensusBlockHash, m_consensusMyID, GetConsensusLeaderID(),
@@ -1300,8 +1304,6 @@ bool DirectoryService::RunConsensusOnFinalBlockWhenDSBackup() {
               "Unable to create consensus object");
     return false;
   }
-
-  m_mediator.m_node->m_prePrepRunning = true;
 
   SetState(FINALBLOCK_CONSENSUS);
 
