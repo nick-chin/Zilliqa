@@ -1049,15 +1049,7 @@ void Node::StartTxnProcessingThread() {
   LOG_MARKER();
   auto t = [this]() -> void {
     m_mediator.m_node->m_prePrepRunning = false;
-    if (!m_mediator.GetIsVacuousEpoch() &&
-        ((m_mediator.m_dsBlockChain.GetLastBlock()
-                  .GetHeader()
-                  .GetDifficulty() >= TXN_SHARD_TARGET_DIFFICULTY &&
-          m_mediator.m_dsBlockChain.GetLastBlock()
-                  .GetHeader()
-                  .GetDSDifficulty() >= TXN_DS_TARGET_DIFFICULTY) ||
-         m_mediator.m_dsBlockChain.GetLastBlock().GetHeader().GetBlockNum() >=
-             TXN_DS_TARGET_NUM)) {
+    if (m_mediator.ToProcessTransaction()) {
       if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE) {
         m_mediator.m_node->ProcessTransactionWhenShardBackup(
             SHARD_MICROBLOCK_GAS_LIMIT);
@@ -1290,6 +1282,7 @@ bool Node::RunConsensusOnMicroBlockWhenShardBackup() {
     return true;
   }
 
+  // This should be improved by another PR
   if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE &&
       !m_mediator.GetIsVacuousEpoch() &&
       ((m_mediator.m_dsBlockChain.GetLastBlock().GetHeader().GetDifficulty() >=
@@ -1638,6 +1631,8 @@ bool Node::CheckMicroBlockHashes(bytes& errorMsg) {
 
   LOG_GENERAL(INFO, "Hash count check passed");
 
+  LOG_GENERAL(INFO, "Number of proposed txns by leader : " << numtxs);
+
   switch (CheckLegitimacyOfTxnHashes(errorMsg)) {
     case LEGITIMACYRESULT::SUCCESS:
       break;
@@ -1818,7 +1813,7 @@ bool Node::PrePrepMicroBlockValidator(
   if (!MicroBlockValidator(message, offset, errorMsg, consensusID, blockNumber,
                            blockHash, leaderID, leaderKey, messageToCosign)) {
     LOG_GENERAL(WARNING, "PrePhase - Microblock validitation failed")
-
+    m_microblock = nullptr;
     return false;
   }
   // currently unused. but can be used in future.

@@ -593,10 +593,10 @@ bool DirectoryService::ProcessFinalBlockConsensusCore(
           RemoveDSMicroBlock();  // Remove DS microblock from my list of
                                  // microblocks
           PrepareRunConsensusOnFinalBlockNormal();
-          if (!m_mediator.GetIsVacuousEpoch()) {
+          /*if (!m_mediator.GetIsVacuousEpoch()) {
             m_mediator.m_node->ProcessTransactionWhenShardBackup(
                 m_microBlockGasLimit);
-          }
+          }*/
           ProcessFinalBlockConsensusCore(message, offset, from);
         };
         DetachedFunction(1, rerunconsensus);
@@ -624,8 +624,8 @@ bool DirectoryService::ProcessFinalBlockConsensusCore(
         auto reprocessconsensus = [this, message, offset, from]() {
           RemoveDSMicroBlock();  // Remove DS microblock from my list of
                                  // microblocks
-          m_mediator.m_node->ProcessTransactionWhenShardBackup(
-              m_microBlockGasLimit);
+          /*m_mediator.m_node->ProcessTransactionWhenShardBackup(
+              m_microBlockGasLimit);*/
           ProcessFinalBlockConsensusCore(message, offset, from);
         };
         DetachedFunction(1, reprocessconsensus);
