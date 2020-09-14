@@ -585,17 +585,8 @@ bool Node::VerifyTxnsOrdering(const vector<TxnHash>& tranHashes,
 
   {
     lock_guard<mutex> g(m_mutexCreatedTransactions);
-    static bool first = false;
 
     if (m_prePrepRunning) {
-#if 1
-      if (!first && (m_consensusMyID == 2)) {
-        LOG_GENERAL(INFO, "Test scenario : Backup missing txns")
-        Transaction tr;
-        m_createdTxns.findOne(tr);
-        first = true;
-      }
-#endif
       if (m_createdTxns.size() > tranHashes.size()) {
         LOG_GENERAL(INFO, "Leader proposed lesser txns than expected!");
         return false;
@@ -615,7 +606,12 @@ bool Node::VerifyTxnsOrdering(const vector<TxnHash>& tranHashes,
           LOG_GENERAL(INFO, "Leader is missing txns which i have in my pool!");
           return false;
         }
-        if (missingtranHashes.size() > 10 /* Move to constant*/) {
+        unsigned int max_missing_txns_nums = (unsigned int)(ceil(
+      (double)((ONE_HUNDRED_PERCENT - TXNS_MISSING_TOLERANCE_IN_PERCENT) *
+               tranHashes.size()) /
+      (double)ONE_HUNDRED_PERCENT));
+
+        if (missingtranHashes.size() > max_missing_txns_nums) {
           LOG_GENERAL(INFO, "Too many missing txns!");
           return false;
         }
@@ -1506,6 +1502,7 @@ bool Node::CheckMicroBlockTimestamp() {
 }
 
 unsigned char Node::CheckLegitimacyOfTxnHashes(bytes& errorMsg) {
+  LOG_MARKER();
   if (LOOKUP_NODE_MODE) {
     LOG_GENERAL(WARNING,
                 "Node::CheckLegitimacyOfTxnHashes not expected to be "

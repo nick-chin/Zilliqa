@@ -184,8 +184,14 @@ bool DirectoryService::ComposeFinalBlock() {
       << m_mediator.m_txBlockChain.GetLastBlock().GetHeader().GetBlockNum() + 1
       << "][" << m_finalBlock->GetHeader().GetNumTxs() << "] FINAL");
 
-  LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
-            "Final block Composed: " << *m_finalBlock);
+  if(m_mediator.m_node->m_prePrepRunning){
+    LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
+              "PrePrep Final block Composed: " << *m_finalBlock);
+  }
+  else{
+    LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
+              "Final block Composed: " << *m_finalBlock);
+  }
 
   m_completeFinalBlockReady = true;
   m_cvCompleteFinalBlockReady.notify_all();
@@ -1160,6 +1166,25 @@ bool DirectoryService::PrePrepFinalBlockValidator(
     return false;
   }
 
+  if (!CheckMicroBlocks(errorMsg, false, true)) {  // Firstly check whether the leader
+                                  // has any mb that I don't have
+    m_mediator.m_node->m_microblock = nullptr;
+    AccountStore::GetInstance().InitTemp();
+    AccountStore::GetInstance().DeserializeDeltaTemp(m_stateDeltaFromShards, 0);
+    AccountStore::GetInstance().SerializeDelta();
+
+    LOG_GENERAL(WARNING,
+                "Proposed Preprep finalblock is not valid");
+    if (m_consensusObject->GetConsensusErrorCode() ==
+        ConsensusCommon::FINALBLOCK_MISSING_MICROBLOCKS) {
+      errorMsg.insert(errorMsg.begin(), DSFBMISSINGMB);
+    }
+
+    return false;    
+  }
+
+  errorMsg.clear();
+  // check if the DS microblock is valid
   if (m_mediator.m_node->m_microblock != nullptr) {
     if (!CheckMicroBlockValidity(errorMsg)) {
       LOG_GENERAL(WARNING, "PrePrep - DS CheckMicroBlockValidity Failed");

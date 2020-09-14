@@ -466,7 +466,7 @@ bool ConsensusLeader::ProcessMessageCommitFailure(const bytes& commitFailureMsg,
   m_commitFailureMap[backupID] = errorMsg;
   m_nodeCommitFailureHandlerFunc(errorMsg, from);
 
-  if (m_commitFailureCounter == m_numForConsensusFailure) {
+  if (m_commitFailureCounter == (m_numForConsensusFailure + 1)) {
     m_state = INITIAL;
 
     bytes consensusFailureMsg = {m_classByte, m_insByte, CONSENSUSFAILURE};
