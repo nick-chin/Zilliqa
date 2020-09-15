@@ -607,9 +607,9 @@ bool Node::VerifyTxnsOrdering(const vector<TxnHash>& tranHashes,
           return false;
         }
         unsigned int max_missing_txns_nums = (unsigned int)(ceil(
-      (double)((ONE_HUNDRED_PERCENT - TXNS_MISSING_TOLERANCE_IN_PERCENT) *
-               tranHashes.size()) /
-      (double)ONE_HUNDRED_PERCENT));
+            (double)((ONE_HUNDRED_PERCENT - TXNS_MISSING_TOLERANCE_IN_PERCENT) *
+                     tranHashes.size()) /
+            (double)ONE_HUNDRED_PERCENT));
 
         if (missingtranHashes.size() > max_missing_txns_nums) {
           LOG_GENERAL(INFO, "Too many missing txns!");
