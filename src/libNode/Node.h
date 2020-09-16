@@ -164,7 +164,7 @@ class Node : public Executable {
   // txn proc timeout related
   std::mutex m_mutexCVTxnProcFinished;
   std::condition_variable cv_TxnProcFinished;
-  bool m_txnProcessingFinished;
+  bool m_txnProcessingFinished = false;
 
   std::mutex m_mutexMicroBlockConsensusBuffer;
   std::unordered_map<uint32_t, VectorOfNodeMsg> m_microBlockConsensusBuffer;
@@ -441,11 +441,11 @@ class Node : public Executable {
   // used only by leader
   std::shared_ptr<MicroBlock> m_prePrepMicroblock;
 
-  bool m_completeMicroBlockReady;
+  bool m_completeMicroBlockReady = false;
   std::condition_variable m_cvCompleteMicroBlockReady;
 
   // used only by backup
-  bool m_prePrepRunning;
+  bool m_prePrepRunning = false;
 
   std::mutex m_mutexCVMicroBlockMissingTxn;
   std::condition_variable cv_MicroBlockMissingTxn;

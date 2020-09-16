@@ -146,7 +146,7 @@ class DirectoryService : public Executable {
 
   // Final block consensus variables
   std::shared_ptr<TxBlock> m_finalBlock;
-  bool m_completeFinalBlockReady;
+  bool m_completeFinalBlockReady = false;
   std::condition_variable m_cvCompleteFinalBlockReady;
 
   struct MBSubmissionBufferEntry {
