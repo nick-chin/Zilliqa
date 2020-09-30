@@ -85,6 +85,7 @@ bool Retriever::RetrieveTxBlocks(bool trimIncompletedBlocks) {
     }
     // store it.
     extraStateDeltas.push_back(stateDelta);
+    BlockStorage::GetBlockStorage().DeleteStateDelta(blockNum);
   }
 
   if ((lastBlockNum - extra_txblocks + 1) %
