@@ -185,8 +185,8 @@ bool Node::Install(const SyncType syncType, const bool toRetrieveHistory,
 
   if (toRetrieveHistory) {
     if (!StartRetrieveHistory(syncType, rejoiningAfterRecover)) {
-      AddGenesisInfo(SyncType::NO_SYNC);
-      this->Prepare(runInitializeGenesisBlocks);
+      // AddGenesisInfo(SyncType::NO_SYNC);
+      // this->Prepare(runInitializeGenesisBlocks);
       return false;
     }
 
@@ -2095,6 +2095,7 @@ void Node::RejoinAsNormal() {
     auto func = [this]() mutable -> void {
       while (true) {
         m_mediator.m_lookup->SetSyncType(SyncType::NORMAL_SYNC);
+        // this->Init(); // Clears both leveldb and soft store.
         this->CleanVariables();
         this->m_mediator.m_ds->CleanVariables();
         while (!this->DownloadPersistenceFromS3()) {
