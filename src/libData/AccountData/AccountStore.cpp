@@ -91,7 +91,8 @@ void AccountStore::InitSoft() {
 bool AccountStore::RefreshDB() {
   LOG_MARKER();
   lock_guard<mutex> g(m_mutexDB);
-  return m_db.RefreshDB();
+  return ContractStorage2::GetContractStorage().RefreshAll() &&
+         m_db.RefreshDB();
 }
 
 void AccountStore::InitTemp() {
