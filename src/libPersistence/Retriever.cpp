@@ -146,6 +146,8 @@ bool Retriever::RetrieveTxBlocks(bool trimIncompletedBlocks) {
                 "Try fetching statedelta and deserializing to state for txnBlk:"
                     << j);
             if (BlockStorage::GetBlockStorage().GetStateDelta(j, stateDelta)) {
+              // Init local AccountStoreTemp first
+              AccountStore::GetInstance().InitTemp();
               if (!AccountStore::GetInstance().DeserializeDelta(stateDelta,
                                                                 0)) {
                 LOG_GENERAL(
@@ -215,6 +217,8 @@ bool Retriever::RetrieveTxBlocks(bool trimIncompletedBlocks) {
     /// Put extra state delta from last DS epoch
     unsigned int extra_delta_index = lastBlockNum - extra_txblocks + 1;
     for (const auto& stateDelta : extraStateDeltas) {
+      // Init local AccountStoreTemp first
+      AccountStore::GetInstance().InitTemp();
       if (!AccountStore::GetInstance().DeserializeDelta(stateDelta, 0)) {
         LOG_GENERAL(WARNING,
                     "AccountStore::GetInstance().DeserializeDelta failed");
