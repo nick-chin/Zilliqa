@@ -1,0 +1,15 @@
+name: Add Target Branch to Pull Request Title
+on: pull_request
+jobs:
+  pr_update_text:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: tzkhan/pr-update-action@v1.1.1
+      if: github.event.action == 'opened'
+      with:
+        repo-token: "${{ secrets.GITHUB_TOKEN }}"
+        branch-regex: '.*'
+        title-template: '[%branch%]'
+        replace-title: false
+        title-prefix-space: true
+        uppercase-title: false
