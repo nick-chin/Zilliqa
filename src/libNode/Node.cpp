@@ -291,16 +291,23 @@ bool Node::CheckIntegrity(const bool fromValidateDBBinary) {
   };
 
   // Retrieve the latest Tx block from storage
-  TxBlockSharedPtr latestTxBlock;
-  if (!BlockStorage::GetBlockStorage().GetLatestTxBlock(latestTxBlock)) {
-    LOG_GENERAL(WARNING, "BlockStorage::GetLatestTxBlock failed");
-    // Set validation state for StatusServer
-    m_mediator.m_validateState = ValidateState::ERROR;
-    return false;
+  // If using validateDB binary, we use GetLatestTxBlock
+  // If using within zilliqa process, we need to avoid keeping the lock on
+  // txBlocks DB
+  TxBlock latestTxBlock;
+  if (fromValidateDBBinary) {
+    TxBlockSharedPtr latestTxBlockPtr;
+    if (!BlockStorage::GetBlockStorage().GetLatestTxBlock(latestTxBlockPtr)) {
+      LOG_GENERAL(WARNING, "BlockStorage::GetLatestTxBlock failed");
+      return false;
+    }
+    latestTxBlock = *latestTxBlockPtr;
+  } else {
+    latestTxBlock = m_mediator.m_txBlockChain.GetLastBlock();
   }
 
-  const uint64_t latestTxBlockNum = latestTxBlock->GetHeader().GetBlockNum();
-  const uint64_t latestDSIndex = latestTxBlock->GetHeader().GetDSBlockNum();
+  const uint64_t& latestTxBlockNum = latestTxBlock.GetHeader().GetBlockNum();
+  const uint64_t& latestDSIndex = latestTxBlock.GetHeader().GetDSBlockNum();
 
   if (fromValidateDBBinary) {
     cout << "[" << getTime() << "] Latest Tx block = " << latestTxBlockNum
@@ -470,7 +477,7 @@ bool Node::CheckIntegrity(const bool fromValidateDBBinary) {
   }
 
   // Check the latest Tx Block
-  if (!m_mediator.m_validator->CheckBlockCosignature(*latestTxBlock, dsComm)) {
+  if (!m_mediator.m_validator->CheckBlockCosignature(latestTxBlock, dsComm)) {
     LOG_GENERAL(WARNING, "CheckBlockCosignature failed");
     // Set validation state for StatusServer
     m_mediator.m_validateState = ValidateState::ERROR;
@@ -834,7 +841,9 @@ bool Node::StartRetrieveHistory(const SyncType syncType,
 
   if ((LOOKUP_NODE_MODE && ARCHIVAL_LOOKUP &&
        SyncType::NEW_LOOKUP_SYNC == syncType) ||
-      (LOOKUP_NODE_MODE && SyncType::RECOVERY_ALL_SYNC == syncType)) {
+      (LOOKUP_NODE_MODE && SyncType::RECOVERY_ALL_SYNC == syncType) ||
+      (LOOKUP_NODE_MODE && !ARCHIVAL_LOOKUP &&
+       SyncType::LOOKUP_SYNC == syncType)) {
     // Additional safe-guard mechanism, find if have not received any MBs from
     // last N txblks in persistence from S3.
     m_mediator.m_lookup->FindMissingMBsForLastNTxBlks(
@@ -895,7 +904,8 @@ bool Node::StartRetrieveHistory(const SyncType syncType,
                                                !bDS) ||
       SyncType::NEW_LOOKUP_SYNC == syncType ||
       (rejoiningAfterRecover &&
-       (SyncType::NORMAL_SYNC == syncType || SyncType::DS_SYNC == syncType))) {
+       (SyncType::NORMAL_SYNC == syncType || SyncType::DS_SYNC == syncType ||
+        SyncType::LOOKUP_SYNC == syncType))) {
     return true;
   }
 
@@ -1996,13 +2006,13 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
   LOG_GENERAL(INFO, "Start check txn packet from lookup");
 
   std::vector<Transaction> checkedTxns;
-  vector<pair<TxnHash, ErrTxnStatus>> rejectTxns;
+  vector<pair<TxnHash, TxnStatus>> rejectTxns;
   for (const auto& txn : txns) {
     if (m_mediator.GetIsVacuousEpoch()) {
       LOG_GENERAL(WARNING, "Already in vacuous epoch, stop proc txn");
       return false;
     }
-    ErrTxnStatus error;
+    TxnStatus error;
     if (m_mediator.m_validator->CheckCreatedTransactionFromLookup(txn, error)) {
       checkedTxns.push_back(txn);
     } else {
@@ -2026,7 +2036,7 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
       MempoolInsertionStatus status;
       if (!m_createdTxns.insert(txn, status)) {
         {
-          if (status.first != ErrTxnStatus::MEMPOOL_ALREADY_PRESENT) {
+          if (status.first != TxnStatus::MEMPOOL_ALREADY_PRESENT) {
             // Skipping MEMPOOL_ALREADY_PRESENT because this is a duplicate
             // issue, hence if this comes, either the txn should be confirmed or
             // if it is pending/dropped there should be some other cause which
@@ -2038,7 +2048,7 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
                                    << status.first);
         }
       } else {
-        if (status.first != ErrTxnStatus::NOT_PRESENT) {
+        if (status.first != TxnStatus::NOT_PRESENT) {
           // Txn added with deletion of some previous txn
           rejectTxns.emplace_back(status.second, status.first);
           LOG_GENERAL(INFO, "Txn " << status.second
@@ -3240,4 +3250,34 @@ void Node::CleanLocalRawStores() {
       }
     }
   }
+}
+bool Node ::StoreVoteUntilPow(const std::string& proposalId,
+                              const std::string& voteValue,
+                              const std::string& remainingVoteCount,
+                              const std::string& startDSEpoch,
+                              const std::string& endDSEpoch) {
+  try {
+    lock_guard<mutex> g(m_mutexGovProposal);
+    m_govProposalInfo.proposal =
+        make_pair(static_cast<uint32_t>(std::stoul(proposalId)),
+                  static_cast<uint32_t>(std::stoul(voteValue)));
+    m_govProposalInfo.remainingVoteCount =
+        static_cast<int32_t>(std::stoul(remainingVoteCount));
+    m_govProposalInfo.startDSEpoch =
+        static_cast<uint32_t>(std::stoul(startDSEpoch));
+    m_govProposalInfo.endDSEpoch =
+        static_cast<uint32_t>(std::stoul(endDSEpoch));
+    m_govProposalInfo.isGovProposalActive = false;
+    LOG_GENERAL(INFO, "[Gov] StoreVoteUntilPow proposalId="
+                          << m_govProposalInfo.proposal.first
+                          << " vote=" << m_govProposalInfo.proposal.second
+                          << " remainingVoteCount="
+                          << m_govProposalInfo.remainingVoteCount
+                          << " startDSEpoch=" << m_govProposalInfo.startDSEpoch
+                          << " endDSEpoch=" << m_govProposalInfo.endDSEpoch);
+  } catch (const std::exception& e) {
+    LOG_GENERAL(WARNING, "Exception raised!!!" << e.what());
+    return false;
+  }
+  return true;
 }

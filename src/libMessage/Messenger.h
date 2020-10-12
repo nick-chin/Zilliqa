@@ -21,8 +21,8 @@
 #include <boost/variant.hpp>
 #include <map>
 #include "common/BaseType.h"
-#include "common/ErrTxn.h"
 #include "common/Serializable.h"
+#include "common/TxnStatus.h"
 #include "libData/AccountData/BloomFilter.h"
 #include "libData/AccountData/MBnForwardedTxnEntry.h"
 #include "libData/BlockData/Block.h"
@@ -260,7 +260,8 @@ class Messenger {
       const uint8_t difficultyLevel, const Peer& submitterPeer,
       const PairOfKey& submitterKey, const uint64_t nonce,
       const std::string& resultingHash, const std::string& mixHash,
-      const uint32_t& lookupId, const uint128_t& gasPrice);
+      const uint32_t& lookupId, const uint128_t& gasPrice,
+      const GovProposalIdVotePair& govProposal);
 
   static bool GetDSPoWSubmission(const bytes& src, const unsigned int offset,
                                  uint64_t& blockNumber,
@@ -268,7 +269,8 @@ class Messenger {
                                  PubKey& submitterPubKey, uint64_t& nonce,
                                  std::string& resultingHash,
                                  std::string& mixHash, Signature& signature,
-                                 uint32_t& lookupId, uint128_t& gasPrice);
+                                 uint32_t& lookupId, uint128_t& gasPrice,
+                                 uint32_t& proposalId, uint32_t& voteValue);
 
   static bool SetDSPoWPacketSubmission(
       bytes& dst, const unsigned int offset,
@@ -393,12 +395,12 @@ class Messenger {
                                            MBnForwardedTxnEntry& entry);
   static bool GetNodePendingTxn(
       const bytes& src, const unsigned offset, uint64_t& epochnum,
-      std::unordered_map<TxnHash, ErrTxnStatus>& hashCodeMap, uint32_t& shardId,
+      std::unordered_map<TxnHash, TxnStatus>& hashCodeMap, uint32_t& shardId,
       PubKey& pubKey);
 
   static bool SetNodePendingTxn(
       bytes& dst, const unsigned offset, const uint64_t& epochnum,
-      const std::unordered_map<TxnHash, ErrTxnStatus>& hashCodeMap,
+      const std::unordered_map<TxnHash, TxnStatus>& hashCodeMap,
       const uint32_t shardId, const PairOfKey& key);
 
   static bool SetNodeForwardTxnBlock(

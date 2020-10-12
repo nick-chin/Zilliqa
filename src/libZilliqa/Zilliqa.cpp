@@ -27,6 +27,7 @@
 #include "libCrypto/Sha2.h"
 #include "libData/AccountData/Address.h"
 #include "libNetwork/Guard.h"
+#include "libRemoteStorageDB/RemoteStorageDB.h"
 #include "libServer/GetWorkServer.h"
 #include "libServer/WebsocketServer.h"
 #include "libUtils/DataConversion.h"
@@ -177,6 +178,18 @@ Zilliqa::Zilliqa(const PairOfKey& key, const Peer& peer, SyncType syncType,
     LOG_GENERAL(FATAL, "Archvial lookup is true but not lookup ");
   }
 
+  // when individual node is being recovered and persistence is not available
+  // locally, then Rejoin as if new miner node which will download persistence
+  // from S3 incremental db and identify if already part of any
+  // shard/dscommittee and proceed accordingly.
+
+  if (!LOOKUP_NODE_MODE && (SyncType::RECOVERY_ALL_SYNC == syncType)) {
+    if (!boost::filesystem::exists(STORAGE_PATH + PERSISTENCE_PATH)) {
+      syncType = SyncType::NEW_SYNC;
+      m_lookup.SetSyncType(SyncType::NEW_SYNC);
+    }
+  }
+
   if (SyncType::NEW_SYNC == syncType) {
     // Setting it earliest before even p2pcomm is instantiated
     m_n.m_runFromLate = true;
@@ -184,10 +197,6 @@ Zilliqa::Zilliqa(const PairOfKey& key, const Peer& peer, SyncType syncType,
 
   P2PComm::GetInstance().SetSelfPeer(peer);
   P2PComm::GetInstance().SetSelfKey(key);
-
-  // Clear any existing diagnostic data from previous runs
-  BlockStorage::GetBlockStorage().ResetDB(BlockStorage::DIAGNOSTIC_NODES);
-  BlockStorage::GetBlockStorage().ResetDB(BlockStorage::DIAGNOSTIC_COINBASE);
 
   if (GUARD_MODE) {
     // Setting the guard upon process launch
@@ -200,6 +209,10 @@ Zilliqa::Zilliqa(const PairOfKey& key, const Peer& peer, SyncType syncType,
       LOG_GENERAL(INFO, "Current node is a shard guard");
     }
   }
+
+  // Clear any existing diagnostic data from previous runs
+  BlockStorage::GetBlockStorage().ResetDB(BlockStorage::DIAGNOSTIC_NODES);
+  BlockStorage::GetBlockStorage().ResetDB(BlockStorage::DIAGNOSTIC_COINBASE);
 
   if (SyncType::NEW_LOOKUP_SYNC == syncType || SyncType::NEW_SYNC == syncType) {
     while (!m_n.DownloadPersistenceFromS3()) {
@@ -301,7 +314,7 @@ Zilliqa::Zilliqa(const PairOfKey& key, const Peer& peer, SyncType syncType,
         break;
       case SyncType::DS_SYNC:
         LOG_GENERAL(INFO, "Sync as a ds node");
-        m_ds.StartSynchronization();
+        m_ds.StartSynchronization(false);
         break;
       case SyncType::LOOKUP_SYNC:
         LOG_GENERAL(INFO, "Sync as a lookup node");
@@ -401,6 +414,11 @@ Zilliqa::Zilliqa(const PairOfKey& key, const Peer& peer, SyncType syncType,
                       "This lookup node not sync yet, don't start listen");
         }
       }
+    }
+
+    if (LOOKUP_NODE_MODE && REMOTESTORAGE_DB_ENABLE) {
+      LOG_GENERAL(INFO, "Starting connection to mongoDB")
+      RemoteStorageDB::GetInstance().Init();
     }
 
     if (ENABLE_STATUS_RPC) {

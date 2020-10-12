@@ -108,6 +108,28 @@ class StatusServer : public Server,
     (void)request;
     response = this->GetValidateDB();
   }
+  inline virtual void SetVoteInPowI(const Json::Value& request,
+                                    Json::Value& response) {
+    (void)request;
+    response = this->SetVoteInPow(
+        request[0u].asString(), request[1u].asString(), request[2u].asString(),
+        request[3u].asString(), request[4u].asString());
+  }
+  inline virtual void ToggleRemoteStorageI(const Json::Value& request,
+                                           Json::Value& response) {
+    (void)request;
+    response = this->ToggleRemoteStorage();
+  }
+  inline virtual void GetRemoteStorageI(const Json::Value& request,
+                                        Json::Value& response) {
+    (void)request;
+    response = this->GetRemoteStorage();
+  }
+  inline virtual void InitRemoteStorageI(const Json::Value& request,
+                                         Json::Value& response) {
+    (void)request;
+    response = this->InitRemoteStorage();
+  }
 
   Json::Value IsTxnInMemPool(const std::string& tranID);
   bool AddToBlacklistExclusion(const std::string& ipAddr);
@@ -127,6 +149,13 @@ class StatusServer : public Server,
   bool ToggleDisableTxns();
   std::string SetValidateDB();
   std::string GetValidateDB();
+  bool SetVoteInPow(const std::string& proposalId, const std::string& voteValue,
+                    const std::string& remainingVoteCount,
+                    const std::string& startDSEpoch,
+                    const std::string& endDSEpoch);
+  bool ToggleRemoteStorage();
+  bool GetRemoteStorage();
+  bool InitRemoteStorage();
 };
 
 #endif  // ZILLIQA_SRC_LIBSERVER_STATUSSERVER_H_

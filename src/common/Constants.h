@@ -158,6 +158,14 @@ extern bool MULTIPLIER_SYNC_MODE;
 extern const unsigned int SEED_SYNC_SMALL_PULL_INTERVAL;
 extern const unsigned int SEED_SYNC_LARGE_PULL_INTERVAL;
 
+// RemoteStorageDB
+extern const std::string REMOTESTORAGE_DB_HOST;
+extern const std::string REMOTESTORAGE_DB_NAME;
+extern const unsigned int REMOTESTORAGE_DB_PORT;
+extern const unsigned int REMOTESTORAGE_DB_SERVER_SELECTION_TIMEOUT_MS;
+extern const std::string REMOTESTORAGE_DB_TLS_FILE;
+extern bool REMOTESTORAGE_DB_ENABLE;
+
 // Consensus constants
 extern const double TOLERANCE_FRACTION;
 extern const unsigned int COMMIT_WINDOW_IN_SECONDS;
@@ -166,6 +174,7 @@ extern const unsigned int CONSENSUS_OBJECT_TIMEOUT;
 extern const unsigned int DS_NUM_CONSENSUS_SUBSETS;
 extern const unsigned int SHARD_NUM_CONSENSUS_SUBSETS;
 extern const unsigned int COMMIT_TOLERANCE_PERCENT;
+extern const unsigned int SUBSET0_RESPONSE_DELAY_IN_MS;
 
 // Data sharing constants
 extern const bool BROADCAST_TREEBASED_CLUSTER_MODE;
@@ -220,6 +229,8 @@ extern const unsigned int GAS_CONGESTION_PERCENT;
 extern const unsigned int UNFILLED_PERCENT_LOW;
 extern const unsigned int UNFILLED_PERCENT_HIGH;
 extern const uint128_t GAS_PRICE_MIN_VALUE;
+extern const unsigned int GAS_PRICE_MIN_VALUE_UPDATE_TARGET_DS;
+extern const uint128_t GAS_PRICE_MIN_VALUE_NEW;
 extern const unsigned int GAS_PRICE_PRECISION;
 extern const uint128_t PRECISION_MIN_VALUE;
 extern const unsigned int GAS_PRICE_DROP_RATIO;
@@ -371,9 +382,16 @@ extern const std::string CONTRACT_FILE_EXTENSION;
 extern const std::string LIBRARY_CODE_EXTENSION;
 extern const std::string EXTLIB_FOLDER;
 extern const bool ENABLE_SCILLA_MULTI_VERSION;
-extern const std::string FIELDS_MAP_DEPTH_INDICATOR;
 extern const bool LOG_SC;
 extern const bool DISABLE_SCILLA_LIB;
+extern const unsigned int SCILLA_SERVER_PENDING_IN_MS;
+
+const std::string FIELDS_MAP_DEPTH_INDICATOR = "_fields_map_depth";
+const std::string MAP_DEPTH_INDICATOR = "_depth";
+const std::string SCILLA_VERSION_INDICATOR = "_version";
+const std::string TYPE_INDICATOR = "_type";
+const std::string HAS_MAP_INDICATOR = "_hasmap";
+const std::string CONTRACT_ADDR_INDICATOR = "addr";
 
 // Test constants
 extern const bool ENABLE_CHECK_PERFORMANCE_LOG;
@@ -414,6 +432,10 @@ extern const std::string TXN_PERSISTENCE_NAME;
 extern const bool ENABLE_TXNS_BACKUP;
 extern const bool SHARDLDR_SAVE_TXN_LOCALLY;
 extern const double BLOOM_FILTER_FALSE_RATE;
+extern const unsigned int COINBASE_UPDATE_TARGET_DS;
+extern const uint128_t COINBASE_REWARD_PER_DS_NEW;
+extern const unsigned int BASE_REWARD_IN_PERCENT_NEW;
+extern const unsigned int LOOKUP_REWARD_IN_PERCENT_NEW;
 
 // Viewchange constants
 extern const unsigned int POST_VIEWCHANGE_BUFFER;

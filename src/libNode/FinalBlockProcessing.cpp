@@ -40,6 +40,7 @@
 #include "libNetwork/Blacklist.h"
 #include "libNetwork/Guard.h"
 #include "libPOW/pow.h"
+#include "libRemoteStorageDB/RemoteStorageDB.h"
 #include "libServer/JSONConversion.h"
 #include "libServer/LookupServer.h"
 #include "libServer/WebsocketServer.h"
@@ -704,6 +705,43 @@ bool Node::ProcessFinalBlockCore(uint64_t& dsBlockNumber,
   if (committeeHash != txBlock.GetHeader().GetCommitteeHash()) {
     LOG_CHECK_FAIL("DS committee hash", txBlock.GetHeader().GetCommitteeHash(),
                    committeeHash);
+    // Lets check if its legitimate hash check failure, if i am lagging behind
+    // in prev ds epoch.
+    if (LOOKUP_NODE_MODE && !m_mediator.m_lookup->m_confirmedLatestDSBlock) {
+      // Check if I have a latest DS Info (but do it only once in current ds
+      // epoch)
+      uint64_t latestDSBlockNum =
+          m_mediator.m_dsBlockChain.GetLastBlock().GetHeader().GetBlockNum();
+      uint64_t recvdDsBlockNum = txBlock.GetHeader().GetDSBlockNum();
+      m_mediator.m_lookup->m_confirmedLatestDSBlock = true;
+
+      if ((recvdDsBlockNum > latestDSBlockNum) ||
+          (m_mediator.m_dsBlockChain.GetBlockCount() <= 1)) {
+        auto func = [this]() -> void {
+          if (ARCHIVAL_LOOKUP) {
+            m_mediator.m_lookup->SetSyncType(SyncType::NEW_LOOKUP_SYNC);
+          } else {
+            m_mediator.m_lookup->SetSyncType(SyncType::LOOKUP_SYNC);
+          }
+          if (!m_mediator.m_lookup->GetDSInfo()) {
+            LOG_GENERAL(INFO,
+                        "I am lagging behind actual ds epoch. Will Rejoin!");
+            m_mediator.m_lookup->SetSyncType(SyncType::NO_SYNC);
+            if (ARCHIVAL_LOOKUP) {
+              // Sync from S3
+              m_mediator.m_lookup->RejoinAsNewLookup(false);
+            } else  // Lookup - sync from S3
+            {
+              m_mediator.m_lookup->RejoinAsLookup(false);
+            }
+          } else {
+            m_mediator.m_lookup->SetSyncType(SyncType::NO_SYNC);
+          }
+        };
+        DetachedFunction(1, func);
+      }
+    }
+
     return false;
   }
 
@@ -756,7 +794,8 @@ bool Node::ProcessFinalBlockCore(uint64_t& dsBlockNumber,
         m_mediator.m_lookup->RejoinAsNewLookup(false);
       } else  // Lookup
       {
-        m_mediator.m_lookup->RejoinAsLookup();
+        // Sync from S3
+        m_mediator.m_lookup->RejoinAsLookup(false);
       }
     }
     // Missed some final block, rejoin
@@ -783,6 +822,7 @@ bool Node::ProcessFinalBlockCore(uint64_t& dsBlockNumber,
         }
       } else  // Lookup
       {
+        // Sync from lookup
         m_mediator.m_lookup->RejoinAsLookup();
       }
     }
@@ -1109,9 +1149,10 @@ void Node::CommitForwardedTransactions(const MBnForwardedTxnEntry& entry) {
   }
 
   for (const auto& twr : entry.m_transactions) {
-    LOG_GENERAL(INFO, "Commit txn " << twr.GetTransaction().GetTranID().hex());
+    const auto& txhash = twr.GetTransaction().GetTranID();
+    LOG_GENERAL(INFO, "Commit txn " << txhash.hex());
     if (LOOKUP_NODE_MODE) {
-      LookupServer::AddToRecentTransactions(twr.GetTransaction().GetTranID());
+      LookupServer::AddToRecentTransactions(txhash);
     }
 
     // feed the event log holder
@@ -1119,15 +1160,23 @@ void Node::CommitForwardedTransactions(const MBnForwardedTxnEntry& entry) {
       WebsocketServer::GetInstance().ParseTxn(twr);
     }
 
+    if (REMOTESTORAGE_DB_ENABLE && !ARCHIVAL_LOOKUP) {
+      RemoteStorageDB::GetInstance().UpdateTxn(
+          txhash.hex(), TxnStatus::CONFIRMED, m_mediator.m_currentEpochNum,
+          twr.GetTransactionReceipt().GetJsonValue()["success"].asBool());
+    }
+
     // Store TxBody to disk
     bytes serializedTxBody;
     twr.Serialize(serializedTxBody, 0);
     if (!BlockStorage::GetBlockStorage().PutTxBody(
             twr.GetTransaction().GetTranID(), serializedTxBody)) {
-      LOG_GENERAL(WARNING, "BlockStorage::PutTxBody failed "
-                               << twr.GetTransaction().GetTranID());
+      LOG_GENERAL(WARNING, "BlockStorage::PutTxBody failed " << txhash);
       return;
     }
+  }
+  if (REMOTESTORAGE_DB_ENABLE && !ARCHIVAL_LOOKUP) {
+    RemoteStorageDB::GetInstance().ExecuteWrite();
   }
   LOG_EPOCH(INFO, m_mediator.m_currentEpochNum,
             "Proceessed " << entry.m_transactions.size() << " of txns.");
@@ -1150,7 +1199,16 @@ void Node::SoftConfirmForwardedTransactions(const MBnForwardedTxnEntry& entry) {
   lock_guard<mutex> g(m_mutexSoftConfirmedTxns);
 
   for (const auto& twr : entry.m_transactions) {
-    m_softConfirmedTxns.emplace(twr.GetTransaction().GetTranID(), twr);
+    const auto& txhash = twr.GetTransaction().GetTranID();
+    m_softConfirmedTxns.emplace(txhash, twr);
+    if (REMOTESTORAGE_DB_ENABLE && !ARCHIVAL_LOOKUP) {
+      RemoteStorageDB::GetInstance().UpdateTxn(
+          txhash.hex(), TxnStatus::SOFT_CONFIRMED, m_mediator.m_currentEpochNum,
+          twr.GetTransactionReceipt().GetJsonValue()["success"].asBool());
+    }
+  }
+  if (REMOTESTORAGE_DB_ENABLE && !ARCHIVAL_LOOKUP) {
+    RemoteStorageDB::GetInstance().ExecuteWrite();
   }
 }
 
@@ -1415,6 +1473,15 @@ bool Node::AddPendingTxn(const HashCodeMap& pendingTxns, const PubKey& pubkey,
       LOG_GENERAL(INFO, "[DTXN]" << entry.first << " " << currentEpochNum);
       m_droppedTxns.insert(entry.first, entry.second, currentEpochNum);
     }
+
+    if (REMOTESTORAGE_DB_ENABLE && !ARCHIVAL_LOOKUP) {
+      RemoteStorageDB::GetInstance().UpdateTxn(
+          entry.first.hex(), entry.second, m_mediator.m_currentEpochNum, false);
+    }
+  }
+
+  if (!ARCHIVAL_LOOKUP && REMOTESTORAGE_DB_ENABLE) {
+    RemoteStorageDB::GetInstance().ExecuteWrite();
   }
   return true;
 }
@@ -1455,7 +1522,7 @@ bool Node::ProcessPendingTxn(const bytes& message, unsigned int cur_offset,
     return false;
   }
   uint64_t epochNum;
-  unordered_map<TxnHash, ErrTxnStatus> hashCodeMap;
+  unordered_map<TxnHash, TxnStatus> hashCodeMap;
   uint32_t shardId;
   PubKey pubkey;
 

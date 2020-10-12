@@ -69,10 +69,11 @@ bool Node::ComposeMicroBlock(const uint64_t& microblock_gas_limit) {
   uint128_t rewards = 0;
   if (m_mediator.GetIsVacuousEpoch() &&
       m_mediator.m_ds->m_mode != DirectoryService::IDLE) {
-    if (!SafeMath<uint128_t>::add(m_mediator.m_ds->m_totalTxnFees,
-                                  COINBASE_REWARD_PER_DS, rewards)) {
-      LOG_GENERAL(WARNING, "rewards addition unsafe!");
-    }
+    rewards =
+        (m_mediator.m_dsBlockChain.GetLastBlock().GetHeader().GetBlockNum() >=
+         COINBASE_UPDATE_TARGET_DS)
+            ? COINBASE_REWARD_PER_DS_NEW
+            : COINBASE_REWARD_PER_DS;
   } else {
     rewards = m_txnFees;
   }
@@ -435,7 +436,7 @@ void Node::ProcessTransactionWhenShardLeader(
   m_txnFees = 0;
 
   vector<Transaction> gasLimitExceededTxnBuffer;
-  vector<pair<TxnHash, ErrTxnStatus>> droppedTxns;
+  vector<pair<TxnHash, TxnStatus>> droppedTxns;
 
   AccountStore::GetInstance().CleanStorageRootUpdateBufferTemp();
 
@@ -459,7 +460,7 @@ void Node::ProcessTransactionWhenShardLeader(
         gasLimitExceededTxnBuffer.emplace_back(t);
         continue;
       }
-      ErrTxnStatus error_code;
+      TxnStatus error_code;
       if (m_mediator.m_validator->CheckCreatedTransaction(t, tr, error_code)) {
         if (!SafeMath<uint64_t>::add(m_gasUsedTotal, tr.GetCumGas(),
                                      m_gasUsedTotal)) {
@@ -515,12 +516,12 @@ void Node::ProcessTransactionWhenShardLeader(
       // if nonce too small, ignore it
       else if (t.GetNonce() <
                AccountStore::GetInstance().GetNonceTemp(senderAddr) + 1) {
-        // LOG_GENERAL(INFO,
-        //             "Nonce too small"
-        //                 << " Expected "
-        //                 <<
-        //                 AccountStore::GetInstance().GetNonceTemp(senderAddr)
-        //                 << " Found " << t.GetNonce());
+        LOG_GENERAL(
+            INFO, "Nonce too small"
+                      << " Expected "
+                      << AccountStore::GetInstance().GetNonceTemp(senderAddr)
+                      << " Found " << t.GetNonce() << " for " << t.GetTranID());
+        droppedTxns.emplace_back(t.GetTranID(), TxnStatus::NONCE_TOO_LOW);
       }
       // if nonce correct, process it
       else {
@@ -528,7 +529,7 @@ void Node::ProcessTransactionWhenShardLeader(
           gasLimitExceededTxnBuffer.emplace_back(t);
           continue;
         }
-        ErrTxnStatus error_code;
+        TxnStatus error_code;
         if (m_mediator.m_validator->CheckCreatedTransaction(t, tr,
                                                             error_code)) {
           if (!SafeMath<uint64_t>::add(m_gasUsedTotal, tr.GetCumGas(),
@@ -735,7 +736,7 @@ void Node::ProcessTransactionWhenShardBackup(
   m_txnFees = 0;
 
   vector<Transaction> gasLimitExceededTxnBuffer;
-  vector<pair<TxnHash, ErrTxnStatus>> droppedTxns;
+  vector<pair<TxnHash, TxnStatus>> droppedTxns;
 
   AccountStore::GetInstance().CleanStorageRootUpdateBufferTemp();
 
@@ -759,7 +760,7 @@ void Node::ProcessTransactionWhenShardBackup(
         gasLimitExceededTxnBuffer.emplace_back(t);
         continue;
       }
-      ErrTxnStatus error_code;
+      TxnStatus error_code;
       if (m_mediator.m_validator->CheckCreatedTransaction(t, tr, error_code)) {
         if (!SafeMath<uint64_t>::add(m_gasUsedTotal, tr.GetCumGas(),
                                      m_gasUsedTotal)) {
@@ -809,6 +810,12 @@ void Node::ProcessTransactionWhenShardBackup(
       // if nonce too small, ignore it
       else if (t.GetNonce() <
                AccountStore::GetInstance().GetNonceTemp(senderAddr) + 1) {
+        LOG_GENERAL(
+            INFO, "Nonce too small"
+                      << " Expected "
+                      << AccountStore::GetInstance().GetNonceTemp(senderAddr)
+                      << " Found " << t.GetNonce() << " for " << t.GetTranID());
+        droppedTxns.emplace_back(t.GetTranID(), TxnStatus::NONCE_TOO_LOW);
       }
       // if nonce correct, process it
       else {
@@ -816,7 +823,7 @@ void Node::ProcessTransactionWhenShardBackup(
           gasLimitExceededTxnBuffer.emplace_back(t);
           continue;
         }
-        ErrTxnStatus error_code;
+        TxnStatus error_code;
         if (m_mediator.m_validator->CheckCreatedTransaction(t, tr,
                                                             error_code)) {
           if (!SafeMath<uint64_t>::add(m_gasUsedTotal, tr.GetCumGas(),
@@ -926,7 +933,7 @@ std::string Node::GetAwsS3CpString(const std::string& uploadFilePath) {
 void Node::ReinstateMemPool(
     const map<Address, map<uint64_t, Transaction>>& addrNonceTxnMap,
     const vector<Transaction>& gasLimitExceededTxnBuffer,
-    const vector<pair<TxnHash, ErrTxnStatus>>& droppedTxns) {
+    const vector<pair<TxnHash, TxnStatus>>& droppedTxns) {
   unique_lock<shared_timed_mutex> g(m_unconfirmedTxnsMutex);
 
   MempoolInsertionStatus status;
@@ -937,7 +944,7 @@ void Node::ReinstateMemPool(
       LOG_GENERAL(INFO, "Txn " << nonceTxn.second.GetTranID() << ", Status: "
                                << status.first << "  " << status.second);
       m_unconfirmedTxns.emplace(nonceTxn.second.GetTranID(),
-                                ErrTxnStatus::PRESENT_NONCE_HIGH);
+                                TxnStatus::PRESENT_NONCE_HIGH);
     }
   }
 
@@ -945,8 +952,7 @@ void Node::ReinstateMemPool(
     t_createdTxns.insert(t, status);
     LOG_GENERAL(INFO, "Txn " << t.GetTranID() << ", Status: " << status.first
                              << "  " << status.second);
-    m_unconfirmedTxns.emplace(t.GetTranID(),
-                              ErrTxnStatus::PRESENT_GAS_EXCEEDED);
+    m_unconfirmedTxns.emplace(t.GetTranID(), TxnStatus::PRESENT_GAS_EXCEEDED);
   }
 
   for (const auto& txnHashStatus : droppedTxns) {
@@ -962,35 +968,35 @@ void Node::PutProcessedInUnconfirmedTxns() {
   uint count = 0;
 
   for (const auto& t : t_processedTransactions) {
-    m_unconfirmedTxns.emplace(
-        t.first, ErrTxnStatus::PRESENT_VALID_CONSENSUS_NOT_REACHED);
+    m_unconfirmedTxns.emplace(t.first,
+                              TxnStatus::PRESENT_VALID_CONSENSUS_NOT_REACHED);
     count++;
   }
   LOG_GENERAL(INFO, "Count of txns " << count);
 }
 
-ErrTxnStatus Node::IsTxnInMemPool(const TxnHash& txhash) const {
-  auto findTxnHashStatus =
-      [txhash](shared_timed_mutex& mut,
-               const HashCodeMap& t_hashCodeMap) -> ErrTxnStatus {
+TxnStatus Node::IsTxnInMemPool(const TxnHash& txhash) const {
+  auto findTxnHashStatus = [txhash](
+                               shared_timed_mutex& mut,
+                               const HashCodeMap& t_hashCodeMap) -> TxnStatus {
     shared_lock<shared_timed_mutex> g(mut, defer_lock);
     // Try to lock for 100 ms
     if (!g.try_lock_for(chrono::milliseconds(100))) {
-      return ErrTxnStatus::ERROR;
+      return TxnStatus::ERROR;
     }
     const auto res = t_hashCodeMap.find(txhash);
     if (res != t_hashCodeMap.end()) {
       return res->second;
     }
 
-    return ErrTxnStatus::NOT_PRESENT;
+    return TxnStatus::NOT_PRESENT;
   };
 
   if (LOOKUP_NODE_MODE) {
     const auto& unconfirmStatus =
         findTxnHashStatus(m_pendingTxnsMutex, m_pendingTxns.GetHashCodeMap());
 
-    if ((unconfirmStatus == ErrTxnStatus::NOT_PRESENT)) {
+    if ((unconfirmStatus == TxnStatus::NOT_PRESENT)) {
       return findTxnHashStatus(m_droppedTxnsMutex,
                                m_droppedTxns.GetHashCodeMap());
     }
@@ -1003,7 +1009,7 @@ ErrTxnStatus Node::IsTxnInMemPool(const TxnHash& txhash) const {
   }
 }
 
-unordered_map<TxnHash, ErrTxnStatus> Node::GetUnconfirmedTxns() const {
+unordered_map<TxnHash, TxnStatus> Node::GetUnconfirmedTxns() const {
   shared_lock<shared_timed_mutex> g(m_unconfirmedTxnsMutex);
 
   return m_unconfirmedTxns;
@@ -1659,28 +1665,29 @@ bool Node::CheckMicroBlockHashes(bytes& errorMsg) {
 
   // Check Rewards only for complete microblock
   if (!m_prePrepRunning) {
+    // Check Rewards
     if (m_mediator.GetIsVacuousEpoch() &&
         m_mediator.m_ds->m_mode != DirectoryService::IDLE) {
-      // Check COINBASE_REWARD_PER_DS + totalTxnFees
-      uint128_t rewards = 0;
-      if (!SafeMath<uint128_t>::add(m_mediator.m_ds->m_totalTxnFees,
-                                    COINBASE_REWARD_PER_DS, rewards)) {
-        LOG_GENERAL(WARNING, "total_reward addition unsafe!");
-      }
+      // Check COINBASE_REWARD_PER_DS
+
+      uint128_t rewards =
+          (m_mediator.m_dsBlockChain.GetLastBlock().GetHeader().GetBlockNum() >=
+          COINBASE_UPDATE_TARGET_DS)
+              ? COINBASE_REWARD_PER_DS_NEW
+              : COINBASE_REWARD_PER_DS;
+
       if (rewards != m_microblock->GetHeader().GetRewards()) {
         LOG_CHECK_FAIL("Total rewards", m_microblock->GetHeader().GetRewards(),
-                       rewards);
-        m_consensusObject->SetConsensusErrorCode(
-            ConsensusCommon::WRONG_REWARDS);
+                      rewards);
+        m_consensusObject->SetConsensusErrorCode(ConsensusCommon::WRONG_REWARDS);
         return false;
       }
     } else {
       // Check TxnFees
       if (m_txnFees != m_microblock->GetHeader().GetRewards()) {
         LOG_CHECK_FAIL("Txn fees", m_microblock->GetHeader().GetRewards(),
-                       m_txnFees);
-        m_consensusObject->SetConsensusErrorCode(
-            ConsensusCommon::WRONG_REWARDS);
+                      m_txnFees);
+        m_consensusObject->SetConsensusErrorCode(ConsensusCommon::WRONG_REWARDS);
         return false;
       }
     }

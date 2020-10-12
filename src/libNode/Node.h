@@ -27,8 +27,8 @@
 #include <vector>
 
 #include "common/Constants.h"
-#include "common/ErrTxn.h"
 #include "common/Executable.h"
+#include "common/TxnStatus.h"
 #include "depends/common/FixedHash.h"
 #include "libConsensus/Consensus.h"
 #include "libData/AccountData/MBnForwardedTxnEntry.h"
@@ -76,6 +76,24 @@ class Node : public Executable {
     WRONGORDER,
     SERIALIZATIONERROR,
     DESERIALIZATIONERROR
+  };
+
+  struct GovProposalInfo {
+    GovProposalIdVotePair proposal;
+    uint64_t startDSEpoch;
+    uint64_t endDSEpoch;
+    int32_t remainingVoteCount;
+    bool isGovProposalActive{false};
+    GovProposalInfo()
+        : proposal({0, 0}),
+          startDSEpoch(0),
+          endDSEpoch(0),
+          remainingVoteCount(0) {}
+    void reset() {
+      proposal = std::make_pair(0, 0);
+      isGovProposalActive = false;
+      startDSEpoch = endDSEpoch = remainingVoteCount = 0;
+    }
   };
 
   Mediator& m_mediator;
@@ -185,6 +203,9 @@ class Node : public Executable {
   std::mutex m_MutexCVFallbackConsensusObj;
   std::condition_variable cv_fallbackConsensusObj;
   bool m_runFallback{};
+  // pair of proposal id and vote value and vote duration in epoch
+  std::mutex m_mutexGovProposal;
+  GovProposalInfo m_govProposalInfo;
 
   // Updating of ds guard var
   std::atomic_bool m_requestedForDSGuardNetworkInfoUpdate = {false};
@@ -239,7 +260,7 @@ class Node : public Executable {
   void ReinstateMemPool(
       const std::map<Address, std::map<uint64_t, Transaction>>& addrNonceTxnMap,
       const std::vector<Transaction>& gasLimitExceededTxnBuffer,
-      const std::vector<std::pair<TxnHash, ErrTxnStatus>>& droppedTxns);
+      const std::vector<std::pair<TxnHash, TxnStatus>>& droppedTxns);
 
   // internal calls from ProcessVCDSBlocksMessage
   void LogReceivedDSBlockDetails(const DSBlock& dsblock);
@@ -401,6 +422,8 @@ class Node : public Executable {
 
   void SoftConfirmForwardedTransactions(const MBnForwardedTxnEntry& entry);
   void ClearSoftConfirmedTransactions();
+  void UpdateGovProposalRemainingVoteInfo();
+  bool CheckIfGovProposalActive();
 
  public:
   enum NodeState : unsigned char {
@@ -722,13 +745,13 @@ class Node : public Executable {
   bool IsShardNode(const PubKey& pubKey);
   bool IsShardNode(const Peer& peerInfo);
 
-  ErrTxnStatus IsTxnInMemPool(const TxnHash& txhash) const;
+  TxnStatus IsTxnInMemPool(const TxnHash& txhash) const;
 
-  std::unordered_map<TxnHash, ErrTxnStatus> GetUnconfirmedTxns() const;
+  std::unordered_map<TxnHash, TxnStatus> GetUnconfirmedTxns() const;
 
-  std::unordered_map<TxnHash, ErrTxnStatus> GetDroppedTxns() const;
+  std::unordered_map<TxnHash, TxnStatus> GetDroppedTxns() const;
 
-  std::unordered_map<TxnHash, ErrTxnStatus> GetPendingTxns() const;
+  std::unordered_map<TxnHash, TxnStatus> GetPendingTxns() const;
 
   uint32_t CalculateShardLeaderFromDequeOfNode(uint16_t lastBlockHash,
                                                uint32_t sizeOfShard,
@@ -778,6 +801,12 @@ class Node : public Executable {
   bool UpdateShardNodeIdentity();
 
   bool ValidateAndUpdateIPChangeRequestStore(const PubKey& shardNodePubkey);
+
+  bool StoreVoteUntilPow(const std::string& proposalId,
+                         const std::string& voteValue,
+                         const std::string& remainingVoteCount,
+                         const std::string& startDSEpoch,
+                         const std::string& endDSEpoch);
 
  private:
   static std::map<NodeState, std::string> NodeStateStrings;

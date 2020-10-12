@@ -43,6 +43,9 @@ endif()
 include(InstallG3log)
 find_package(g3logger CONFIG REQUIRED)
 
+include(InstallMongo)
+find_package(mongocxx CONFIG REQUIRED)
+ 
 include(InstallWebsocketpp)
 find_package(websocketpp CONFIG REQUIRED)
 
@@ -142,6 +145,11 @@ endif()
 if(VC_TEST_DS_SUSPEND_3)
     message(STATUS "VC 2 test enabled")
     add_definitions(-DVC_TEST_DS_SUSPEND_3)
+endif()
+
+if(GOVVC_TEST_DS_SUSPEND_3)
+    message(STATUS "GOVVC 2 test enabled")
+    add_definitions(-DGOVVC_TEST_DS_SUSPEND_3)
 endif()
 
 # For Final Block Consensus
@@ -326,7 +334,7 @@ endif()
 
 # installation
 
-set_target_properties(zilliqa sendcmd genaccounts genkeypair getpub getaddr gentxn signmultisig verifymultisig zilliqad gensigninitialds grepperf getnetworkhistory getrewardhistory validateDB restore genTxnBodiesFromS3 isolatedServer
+set_target_properties(zilliqa sendcmd genaccounts genkeypair getpub getaddr gentxn signmultisig verifymultisig zilliqad gensigninitialds grepperf getnetworkhistory getrewardhistory validateDB restore genTxnBodiesFromS3 isolatedServer data_migrate
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 set_target_properties(Common Trie ethash NAT

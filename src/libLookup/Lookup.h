@@ -289,16 +289,15 @@ class Lookup : public Executable {
   bool GetMyLookupOnline(bool fromRecovery = false);
 
   // Rejoin the network as a lookup node in case of failure happens in protocol
-  void RejoinAsLookup();
+  void RejoinAsLookup(bool fromLookup = true);
 
   // Rejoin the network as a newlookup node in case of failure happens in
   // protocol
   void RejoinAsNewLookup(bool fromLookup = true);
 
   bool AddToTxnShardMap(const Transaction& tx, uint32_t shardId);
-  static bool AddToTxnShardMap(const Transaction& tx, uint32_t shardId,
-                               TxnShardMap& txnShardMap,
-                               std::mutex& txnShardMapMutex);
+  bool AddToTxnShardMap(const Transaction& tx, uint32_t shardId,
+                        TxnShardMap& txnShardMap, std::mutex& txnShardMapMutex);
 
   void CheckBufferTxBlocks();
 
@@ -477,6 +476,7 @@ class Lookup : public Executable {
   bool m_fetchedLatestDSBlock = false;
   std::mutex m_mutexLatestDSBlockUpdation;
   std::condition_variable cv_latestDSBlock;
+  bool m_confirmedLatestDSBlock = false;
 
   std::mutex m_MutexCVSetTxBlockFromSeed;
   std::condition_variable cv_setTxBlockFromSeed;

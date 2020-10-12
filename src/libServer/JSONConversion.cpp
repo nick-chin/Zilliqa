@@ -27,6 +27,7 @@
 #include "libData/AccountData/Transaction.h"
 #include "libData/AccountData/TransactionReceipt.h"
 #include "libData/BlockData/Block.h"
+#include "libMediator/Mediator.h"
 #include "libUtils/DataConversion.h"
 #include "libUtils/Logger.h"
 
@@ -55,10 +56,14 @@ const Json::Value JSONConversion::convertTxBlocktoJson(const TxBlock& txblock) {
 
   const TxBlockHeader& txheader = txblock.GetHeader();
 
+  bool isVacuous =
+      Mediator::GetIsVacuousEpoch(txblock.GetHeader().GetBlockNum());
+
   ret_head["Version"] = txheader.GetVersion();
   ret_head["GasLimit"] = to_string(txheader.GetGasLimit());
   ret_head["GasUsed"] = to_string(txheader.GetGasUsed());
-  ret_head["Rewards"] = txheader.GetRewards().str();
+  ret_head["Rewards"] = (isVacuous ? txheader.GetRewards().str() : "0");
+  ret_head["TxnFees"] = (isVacuous ? "0" : txheader.GetRewards().str());
   ret_head["PrevBlockHash"] = txheader.GetPrevHash().hex();
   ret_head["BlockNum"] = to_string(txheader.GetBlockNum());
   ret_head["Timestamp"] = to_string(txblock.GetTimestamp());
@@ -133,7 +138,26 @@ const Json::Value JSONConversion::convertDSblocktoJson(const DSBlock& dsblock) {
   for (const auto& dswinner : dshead.GetDSPoWWinners()) {
     ret_header["PoWWinners"].append(static_cast<string>(dswinner.first));
   }
+
   ret_header["Timestamp"] = to_string(dsblock.GetTimestamp());
+
+  for (const auto& govProposal : dshead.GetGovProposalMap()) {
+    Json::Value _tempGovProposal;
+    Json::Value _dsvotes;
+    Json::Value _shardvotes;
+    _tempGovProposal["ProposalId"] = govProposal.first;
+    for (const auto& votes : govProposal.second.first) {
+      _dsvotes["VoteValue"] = votes.first;
+      _dsvotes["VoteCount"] = votes.second;
+      _tempGovProposal["DSVotes"].append(_dsvotes);
+    }
+    for (const auto& votes : govProposal.second.second) {
+      _shardvotes["VoteValue"] = votes.first;
+      _shardvotes["VoteCount"] = votes.second;
+      _tempGovProposal["ShardVotes"].append(_shardvotes);
+    }
+    ret_header["Governance"].append(_tempGovProposal);
+  }
   ret["header"] = ret_header;
 
   ret["signature"] = ret_sign;
@@ -319,6 +343,29 @@ const vector<string> JSONConversion::convertJsonArrayToVector(
     vec.emplace_back(streamObj.str());
   }
   return vec;
+}
+
+const Json::Value JSONConversion::convertTxtoJson(const Transaction& txn) {
+  Json::Value _json;
+  _json["ID"] = txn.GetTranID().hex();
+  _json["version"] = to_string(txn.GetVersion());
+  _json["nonce"] = to_string(txn.GetNonce());
+  _json["toAddr"] = txn.GetToAddr().hex();
+  _json["senderAddr"] = txn.GetSenderAddr().hex();
+  _json["amount"] = txn.GetAmount().str();
+  _json["signature"] = static_cast<string>(txn.GetSignature());
+
+  _json["gasPrice"] = txn.GetGasPrice().str();
+  _json["gasLimit"] = to_string(txn.GetGasLimit());
+
+  if (!txn.GetCode().empty()) {
+    _json["code"] = DataConversion::CharArrayToString(txn.GetCode());
+  }
+  if (!txn.GetData().empty()) {
+    _json["data"] = DataConversion::CharArrayToString(txn.GetData());
+  }
+
+  return _json;
 }
 
 const Json::Value JSONConversion::convertTxtoJson(

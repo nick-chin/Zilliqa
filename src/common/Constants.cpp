@@ -129,6 +129,23 @@ const unsigned int SEED_SYNC_SMALL_PULL_INTERVAL{
     ReadConstantNumeric("SEED_SYNC_SMALL_PULL_INTERVAL", "node.seed.")};
 const unsigned int SEED_SYNC_LARGE_PULL_INTERVAL{
     ReadConstantNumeric("SEED_SYNC_LARGE_PULL_INTERVAL", "node.seed.")};
+
+// RemotestorageDB constants
+const string REMOTESTORAGE_DB_HOST{
+    ReadConstantString("REMOTESTORAGE_DB_HOST", "node.remotestorageDB.")};
+const string REMOTESTORAGE_DB_NAME{
+    ReadConstantString("REMOTESTORAGE_DB_NAME", "node.remotestorageDB.")};
+const unsigned int REMOTESTORAGE_DB_PORT{
+    ReadConstantNumeric("REMOTESTORAGE_DB_PORT", "node.remotestorageDB.")};
+const unsigned int REMOTESTORAGE_DB_SERVER_SELECTION_TIMEOUT_MS{
+    ReadConstantNumeric("REMOTESTORAGE_DB_SERVER_SELECTION_TIMEOUT_MS",
+                        "node.remotestorageDB.")};
+const string REMOTESTORAGE_DB_TLS_FILE{
+    ReadConstantString("REMOTESTORAGE_DB_TLS_FILE", "node.remotestorageDB.")};
+bool REMOTESTORAGE_DB_ENABLE{
+    ReadConstantString("REMOTESTORAGE_DB_ENABLE", "node.remotestorageDB.") ==
+    "true"};
+
 // Consensus constants
 const double TOLERANCE_FRACTION{
     ReadConstantDouble("TOLERANCE_FRACTION", "node.consensus.")};
@@ -144,6 +161,8 @@ const unsigned int SHARD_NUM_CONSENSUS_SUBSETS{
     ReadConstantNumeric("SHARD_NUM_CONSENSUS_SUBSETS", "node.consensus.")};
 const unsigned int COMMIT_TOLERANCE_PERCENT{
     ReadConstantNumeric("COMMIT_TOLERANCE_PERCENT", "node.consensus.")};
+const unsigned int SUBSET0_RESPONSE_DELAY_IN_MS{
+    ReadConstantNumeric("SUBSET0_RESPONSE_DELAY_IN_MS", "node.consensus.")};
 
 // Data sharing constants
 const bool BROADCAST_TREEBASED_CLUSTER_MODE{
@@ -258,6 +277,10 @@ const unsigned int MEAN_GAS_PRICE_DS_NUM{
     ReadConstantNumeric("MEAN_GAS_PRICE_DS_NUM", "node.gas.")};
 const string LEGAL_GAS_PRICE_IP{
     ReadConstantString("LEGAL_GAS_PRICE_IP", "node.gas.")};
+const unsigned int GAS_PRICE_MIN_VALUE_UPDATE_TARGET_DS{
+    ReadConstantNumeric("GAS_PRICE_MIN_VALUE_UPDATE_TARGET_DS", "node.gas.")};
+const uint128_t GAS_PRICE_MIN_VALUE_NEW{
+    ReadConstantNumeric("GAS_PRICE_MIN_VALUE_NEW", "node.gas.")};
 
 // Gossip constants
 const bool BROADCAST_GOSSIP_MODE{
@@ -538,12 +561,12 @@ const string EXTLIB_FOLDER{
 const bool ENABLE_SCILLA_MULTI_VERSION{
     ReadConstantString("ENABLE_SCILLA_MULTI_VERSION", "node.smart_contract.") ==
     "true"};
-const string FIELDS_MAP_DEPTH_INDICATOR{
-    ReadConstantString("FIELDS_MAP_DEPTH_INDICATOR", "node.smart_contract.")};
 const bool LOG_SC{ReadConstantString("LOG_SC", "node.smart_contract.") ==
                   "true"};
 const bool DISABLE_SCILLA_LIB{
     ReadConstantString("DISABLE_SCILLA_LIB", "node.smart_contract.") == "true"};
+const unsigned int SCILLA_SERVER_PENDING_IN_MS{
+    ReadConstantNumeric("SCILLA_SERVER_PENDING_IN_MS", "node.smart_contract.")};
 
 // Test constants
 const bool ENABLE_CHECK_PERFORMANCE_LOG{
@@ -621,6 +644,14 @@ const bool SHARDLDR_SAVE_TXN_LOCALLY{
     "true"};
 const double BLOOM_FILTER_FALSE_RATE{
     ReadConstantDouble("BLOOM_FILTER_FALSE_RATE", "node.transactions.")};
+const unsigned int COINBASE_UPDATE_TARGET_DS{
+    ReadConstantNumeric("COINBASE_UPDATE_TARGET_DS", "node.transactions.")};
+const uint128_t COINBASE_REWARD_PER_DS_NEW{
+    ReadConstantString("COINBASE_REWARD_PER_DS_NEW", "node.transactions.")};
+const unsigned int BASE_REWARD_IN_PERCENT_NEW{
+    ReadConstantNumeric("BASE_REWARD_IN_PERCENT_NEW", "node.transactions.")};
+const unsigned int LOOKUP_REWARD_IN_PERCENT_NEW{
+    ReadConstantNumeric("LOOKUP_REWARD_IN_PERCENT_NEW", "node.transactions.")};
 
 // Viewchange constants
 const unsigned int POST_VIEWCHANGE_BUFFER{

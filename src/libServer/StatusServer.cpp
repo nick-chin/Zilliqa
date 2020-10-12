@@ -18,6 +18,7 @@
 #include "StatusServer.h"
 #include "JSONConversion.h"
 #include "libNetwork/Blacklist.h"
+#include "libRemoteStorageDB/RemoteStorageDB.h"
 
 using namespace jsonrpc;
 using namespace std;
@@ -130,6 +131,22 @@ StatusServer::StatusServer(Mediator& mediator,
       jsonrpc::Procedure("GetValidateDB", jsonrpc::PARAMS_BY_POSITION,
                          jsonrpc::JSON_STRING, NULL),
       &StatusServer::GetValidateDBI);
+  this->bindAndAddMethod(
+      jsonrpc::Procedure("SetVoteInPow", jsonrpc::PARAMS_BY_POSITION,
+                         jsonrpc::JSON_BOOLEAN, NULL),
+      &StatusServer::SetVoteInPowI);
+  this->bindAndAddMethod(
+      jsonrpc::Procedure("ToggleRemoteStorage", jsonrpc::PARAMS_BY_POSITION,
+                         jsonrpc::JSON_OBJECT, NULL),
+      &StatusServer::ToggleRemoteStorageI);
+  this->bindAndAddMethod(
+      jsonrpc::Procedure("GetRemoteStorage", jsonrpc::PARAMS_BY_POSITION,
+                         jsonrpc::JSON_OBJECT, NULL),
+      &StatusServer::GetRemoteStorageI);
+  this->bindAndAddMethod(
+      jsonrpc::Procedure("InitRemoteStorage", jsonrpc::PARAMS_BY_POSITION,
+                         jsonrpc::JSON_OBJECT, NULL),
+      &StatusServer::InitRemoteStorageI);
 }
 
 string StatusServer::GetLatestEpochStatesUpdated() {
@@ -258,6 +275,12 @@ bool StatusServer::AddToSeedsWhitelist(const string& ipAddr) {
                              "IP Address provided not valid");
     }
 
+    if (!Blacklist::GetInstance().IsEnabled()) {
+      throw JsonRpcException(
+          RPC_INVALID_PARAMETER,
+          "Whitelisting is disabled. Node might not be synced yet!");
+    }
+
     if (!Blacklist::GetInstance().WhitelistSeed(numIP)) {
       throw JsonRpcException(
           RPC_INVALID_PARAMETER,
@@ -351,22 +374,22 @@ Json::Value StatusServer::IsTxnInMemPool(const string& tranID) {
 
     if (!IsTxnDropped(code)) {
       switch (code) {
-        case ErrTxnStatus::NOT_PRESENT:
+        case TxnStatus::NOT_PRESENT:
           _json["present"] = false;
           _json["pending"] = false;
-          _json["code"] = ErrTxnStatus::NOT_PRESENT;
+          _json["code"] = TxnStatus::NOT_PRESENT;
           return _json;
-        case ErrTxnStatus::PRESENT_NONCE_HIGH:
+        case TxnStatus::PRESENT_NONCE_HIGH:
           _json["present"] = true;
           _json["pending"] = true;
-          _json["code"] = ErrTxnStatus::PRESENT_NONCE_HIGH;
+          _json["code"] = TxnStatus::PRESENT_NONCE_HIGH;
           return _json;
-        case ErrTxnStatus::PRESENT_GAS_EXCEEDED:
+        case TxnStatus::PRESENT_GAS_EXCEEDED:
           _json["present"] = true;
           _json["pending"] = true;
-          _json["code"] = ErrTxnStatus::PRESENT_GAS_EXCEEDED;
+          _json["code"] = TxnStatus::PRESENT_GAS_EXCEEDED;
           return _json;
-        case ErrTxnStatus::ERROR:
+        case TxnStatus::ERROR:
           throw JsonRpcException(RPC_INTERNAL_ERROR, "Processing transactions");
         default:
           throw JsonRpcException(RPC_MISC_ERROR, "Unable to process");
@@ -420,6 +443,25 @@ bool StatusServer::ToggleDisableTxns() {
   }
   m_mediator.m_disableTxns = !m_mediator.m_disableTxns;
   return m_mediator.m_disableTxns;
+}
+
+bool StatusServer::ToggleRemoteStorage() {
+  if (!LOOKUP_NODE_MODE) {
+    throw JsonRpcException(RPC_INVALID_REQUEST,
+                           "Not to be queried on non-lookup");
+  }
+  REMOTESTORAGE_DB_ENABLE = !REMOTESTORAGE_DB_ENABLE;
+
+  return REMOTESTORAGE_DB_ENABLE;
+}
+
+bool StatusServer::GetRemoteStorage() {
+  if (!LOOKUP_NODE_MODE) {
+    throw JsonRpcException(RPC_INVALID_REQUEST,
+                           "Not to be queried on non-lookup");
+  }
+
+  return REMOTESTORAGE_DB_ENABLE;
 }
 
 string StatusServer::SetValidateDB() {
@@ -481,4 +523,46 @@ string StatusServer::GetValidateDB() {
   }
 
   return result;
+}
+
+bool StatusServer::SetVoteInPow(const std::string& proposalId,
+                                const std::string& voteValue,
+                                const std::string& remainingVoteCount,
+                                const std::string& startDSEpoch,
+                                const std::string& endDSEpoch) {
+  if (LOOKUP_NODE_MODE) {
+    throw JsonRpcException(RPC_INVALID_REQUEST, "Not to be queried on lookup");
+  }
+  if (proposalId.empty() || voteValue.empty() || remainingVoteCount.empty() ||
+      startDSEpoch.empty() || endDSEpoch.empty()) {
+    return false;
+  }
+  try {
+    if (!m_mediator.m_node->StoreVoteUntilPow(proposalId, voteValue,
+                                              remainingVoteCount, startDSEpoch,
+                                              endDSEpoch)) {
+      throw JsonRpcException(RPC_INVALID_PARAMETER,
+                             "Invalid request parameters");
+    }
+  } catch (const JsonRpcException& je) {
+    throw je;
+  } catch (const exception& e) {
+    LOG_GENERAL(WARNING, "[Error]: " << e.what());
+    throw JsonRpcException(RPC_MISC_ERROR, "Unable to process");
+  }
+  return true;
+}
+bool StatusServer::InitRemoteStorage() {
+  if (!LOOKUP_NODE_MODE) {
+    throw JsonRpcException(RPC_INVALID_REQUEST,
+                           "Not to be queried on non-lookup");
+  }
+
+  RemoteStorageDB::GetInstance().Init(true);
+
+  if (!RemoteStorageDB::GetInstance().IsInitialized()) {
+    throw JsonRpcException(RPC_MISC_ERROR, "Failed to initialize");
+  }
+
+  return true;
 }
