@@ -654,5 +654,6 @@ const vector<string> GENESIS_WALLETS{
     ReadAccountsFromConstantsFile("wallet_address")};
 const vector<string> GENESIS_KEYS{ReadAccountsFromConstantsFile("private_key")};
 
+// Verifier
 const vector<pair<uint64_t, uint32_t>> VERIFIER_EXCLUSION_LIST{
     ReadVerifierExclusionListFromConstantsFile()};
