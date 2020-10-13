@@ -147,7 +147,8 @@ void Mediator::IncreaseEpochNum() {
     auto now = std::chrono::system_clock::now();
 
     // block time = average over last
-    auto wait_seconds = chrono::seconds(m_aveBlockTimeInSeconds * num_block);
+    auto wait_seconds = chrono::seconds(
+        static_cast<unsigned int>(m_aveBlockTimeInSeconds) * num_block);
 
     GetWorkServer::GetInstance().SetNextPoWTime(now + wait_seconds);
   }

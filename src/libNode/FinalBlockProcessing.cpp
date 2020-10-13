@@ -86,10 +86,13 @@ bool Node::StoreFinalBlock(const TxBlock& txBlock) {
     const uint64_t& timestampNow = txBlock.GetTimestamp();
     const uint64_t& lastBlockTimeInSeconds =
         (timestampNow - timestampBef) / 1000000;
-    m_mediator.m_aveBlockTimeInSeconds -=
-        m_mediator.m_aveBlockTimeInSeconds / NUM_FINAL_BLOCK_PER_POW;
-    m_mediator.m_aveBlockTimeInSeconds +=
+    double tmpAveBlockTimeInSeconds = m_mediator.m_aveBlockTimeInSeconds;
+    tmpAveBlockTimeInSeconds -=
+        tmpAveBlockTimeInSeconds / NUM_FINAL_BLOCK_PER_POW;
+    tmpAveBlockTimeInSeconds +=
         lastBlockTimeInSeconds / NUM_FINAL_BLOCK_PER_POW;
+    m_mediator.m_aveBlockTimeInSeconds =
+        (tmpAveBlockTimeInSeconds < 1) ? 1 : tmpAveBlockTimeInSeconds;
   }
 
   m_mediator.IncreaseEpochNum();

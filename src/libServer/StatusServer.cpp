@@ -568,5 +568,6 @@ bool StatusServer::InitRemoteStorage() {
 }
 
 string StatusServer::AverageBlockTime() {
-  return to_string(m_mediator.m_aveBlockTimeInSeconds);
+  return to_string(
+      static_cast<unsigned int>(m_mediator.m_aveBlockTimeInSeconds));
 }

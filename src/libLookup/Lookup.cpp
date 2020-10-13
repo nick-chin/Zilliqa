@@ -2940,8 +2940,9 @@ bool Lookup::ProcessSetTxBlockFromSeed(const bytes& message,
         NUM_FINAL_BLOCK_PER_POW - (cur_block % NUM_FINAL_BLOCK_PER_POW);
     num_block = num_block % NUM_FINAL_BLOCK_PER_POW;
     auto now = std::chrono::system_clock::now();
-    auto wait_seconds =
-        chrono::seconds(m_mediator.m_aveBlockTimeInSeconds * num_block);
+    auto wait_seconds = chrono::seconds(
+        static_cast<unsigned int>(m_mediator.m_aveBlockTimeInSeconds) *
+        num_block);
 
     GetWorkServer::GetInstance().SetNextPoWTime(now + wait_seconds);
   }
