@@ -2028,14 +2028,6 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
                       [this] { return m_state == MICROBLOCK_CONSENSUS_PREP; });
   }
 
-  if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE &&
-      m_state != MICROBLOCK_CONSENSUS_PREP) {
-    unique_lock<mutex> lk(m_mutexCVTxnPacket);
-    m_txnPacketThreadOnHold++;
-    cv_txnPacket.wait(lk,
-                      [this] { return m_state == MICROBLOCK_CONSENSUS_PREP; });
-  }
-
   // Process the txns
   unsigned int processed_count = 0;
 

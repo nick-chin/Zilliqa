@@ -5489,8 +5489,9 @@ void Lookup::SendTxnPacketToShard(const uint32_t shardId, bool toDS) {
   bool result = false;
 
   {
-    lock_guard<mutex> g1(m_txnShardMapMutex);
-    lock_guard<mutex> g2(m_txnShardMapGeneratedMutex);
+    unique_lock<mutex> g(m_txnShardMapMutex, defer_lock);
+    unique_lock<mutex> g2(m_txnShardMapGeneratedMutex, defer_lock);
+    lock(g, g2);
     if (shardId > m_txnShardMapGenerated.size()) {
       return;
     }
