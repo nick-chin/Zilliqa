@@ -85,7 +85,7 @@ bool Node::StoreFinalBlock(const TxBlock& txBlock) {
             .GetTimestamp();
     const uint64_t& timestampNow = txBlock.GetTimestamp();
     const double lastBlockTimeInSeconds =
-        (timestampNow - timestampBef) / 1000000;
+        static_cast<double>(timestampNow - timestampBef) / 1000000;
     double tmpAveBlockTimeInSeconds = m_mediator.m_aveBlockTimeInSeconds;
     tmpAveBlockTimeInSeconds -=
         tmpAveBlockTimeInSeconds / NUM_FINAL_BLOCK_PER_POW;
