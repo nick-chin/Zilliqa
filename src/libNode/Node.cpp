@@ -1821,8 +1821,9 @@ bool Node::ProcessTxnPacketFromLookup([[gnu::unused]] const bytes& message,
   // 1. DS epoch: lookup dispatch in new DS epoch, buffer and dispatch when mb
   // finish, so normally first DS epoch won't have txns
   // 2. FB epoch: saying the 2nd epoch after ds epoch, lookup dispatch txn upon
-  // mb, they distribute right away once mb consensus started, and before
+  // mb, they distribute right away until mb consensus started. During the mb
   // submitting mb, all the packet received should be buffered
+  // consensus, all the packet received should be buffered
   // for DS:
   // 1. DS epoch: lookup dispatch in new DS epoch, distribute immediately until
   // DSMB started, during DSMB and FB consensus, all packet should be buffered
@@ -1968,13 +1969,6 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
     P2PComm::GetInstance().SendBroadcastMessage(toSend, message);
   }
 
-  if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE &&
-      m_state != MICROBLOCK_CONSENSUS_PREP) {
-    unique_lock<mutex> lk(m_mutexCVWaitDSBlock);
-    cv_txnPacket.wait(lk,
-                      [this] { return m_state == MICROBLOCK_CONSENSUS_PREP; });
-  }
-
 #ifdef DM_TEST_DM_LESSTXN_ONE
   uint32_t dm_test_id = (m_mediator.m_ds->GetConsensusLeaderID() + 1) %
                         m_mediator.m_DSCommittee->size();
@@ -2025,6 +2019,14 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
     return false;
   }
 #endif  // DM_TEST_DM_MORETXN_HALF
+
+  if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE &&
+      m_state != MICROBLOCK_CONSENSUS_PREP) {
+    unique_lock<mutex> lk(m_mutexCVTxnPacket);
+    m_txnPacketThreadOnHold++;
+    cv_txnPacket.wait(lk,
+                      [this] { return m_state == MICROBLOCK_CONSENSUS_PREP; });
+  }
 
   if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE &&
       m_state != MICROBLOCK_CONSENSUS_PREP) {

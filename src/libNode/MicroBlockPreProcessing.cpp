@@ -1301,7 +1301,7 @@ bool Node::RunConsensusOnMicroBlockWhenShardBackup() {
     while (m_txnPacketThreadOnHold > 0) {
       std::this_thread::sleep_for(chrono::milliseconds(100));
     }
-    //ProcessTransactionWhenShardBackup(SHARD_MICROBLOCK_GAS_LIMIT);
+    // ProcessTransactionWhenShardBackup(SHARD_MICROBLOCK_GAS_LIMIT);
   }
 
   LOG_EPOCH(
@@ -1678,22 +1678,24 @@ bool Node::CheckMicroBlockHashes(bytes& errorMsg) {
 
       uint128_t rewards =
           (m_mediator.m_dsBlockChain.GetLastBlock().GetHeader().GetBlockNum() >=
-          COINBASE_UPDATE_TARGET_DS)
+           COINBASE_UPDATE_TARGET_DS)
               ? COINBASE_REWARD_PER_DS_NEW
               : COINBASE_REWARD_PER_DS;
 
       if (rewards != m_microblock->GetHeader().GetRewards()) {
         LOG_CHECK_FAIL("Total rewards", m_microblock->GetHeader().GetRewards(),
-                      rewards);
-        m_consensusObject->SetConsensusErrorCode(ConsensusCommon::WRONG_REWARDS);
+                       rewards);
+        m_consensusObject->SetConsensusErrorCode(
+            ConsensusCommon::WRONG_REWARDS);
         return false;
       }
     } else {
       // Check TxnFees
       if (m_txnFees != m_microblock->GetHeader().GetRewards()) {
         LOG_CHECK_FAIL("Txn fees", m_microblock->GetHeader().GetRewards(),
-                      m_txnFees);
-        m_consensusObject->SetConsensusErrorCode(ConsensusCommon::WRONG_REWARDS);
+                       m_txnFees);
+        m_consensusObject->SetConsensusErrorCode(
+            ConsensusCommon::WRONG_REWARDS);
         return false;
       }
     }
