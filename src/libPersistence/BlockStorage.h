@@ -404,7 +404,6 @@ class BlockStorage : public Singleton<BlockStorage> {
   mutable std::shared_timed_mutex m_mutexTxBody;
   mutable std::shared_timed_mutex m_mutexTxBodyTmp;
   mutable std::shared_timed_mutex m_mutexStateRoot;
-  mutable std::shared_timed_mutex m_mutexTxnHistorical;
   mutable std::shared_timed_mutex m_mutexProcessTx;
   mutable std::shared_timed_mutex m_mutexMinerInfoDSComm;
   mutable std::shared_timed_mutex m_mutexMinerInfoShards;
