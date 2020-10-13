@@ -28,6 +28,6 @@
 #include "BlockHeader/TxBlockHeader.h"
 #include "BlockHeader/VCBlockHeader.h"
 
-enum BlockType : unsigned int { DS = 0, Tx = 1, VC = 2, UNUSED_FB = 3 };
+enum BlockType : unsigned int { DS = 0, Tx = 1, VC = 2 };
 
 #endif  // ZILLIQA_SRC_LIBDATA_BLOCKDATA_BLOCK_H_
