@@ -4910,7 +4910,7 @@ bool Messenger::SetNodeForwardTxnBlock(
     // }
     ProtoTransaction* protoTxn = new ProtoTransaction();
     TransactionToProtobuf(txn, *protoTxn);
-    unsigned txn_size = protoTxn->ByteSize();
+    // unsigned txn_size = protoTxn->ByteSize();
     // if ((msg_size + txn_size) > PACKET_BYTESIZE_LIMIT &&
     //     txn_size >= SMALL_TXN_SIZE) {
     //   continue;

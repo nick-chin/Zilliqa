@@ -442,8 +442,8 @@ bool Lookup::GenTxnToSend(size_t num_txn,
 
   for (unsigned int i = 0; i < myGenesisAccounts.size(); i++) {
     const auto& addr = myGenesisAccounts.at(i);
-    auto txnShard = Transaction::GetShardIndex(addr, numShards);
-    // auto txnShard = AddressShardIndex(addr, numShards);
+    // auto txnShard = Transaction::GetShardIndex(addr, numShards);
+    auto txnShard = AddressShardIndex(addr, numShards);
     txns.clear();
 
     uint64_t nonce;

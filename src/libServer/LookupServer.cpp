@@ -542,8 +542,7 @@ Json::Value LookupServer::CreateTransaction(
                                  "Non - contract address called");
         }
 
-        unsigned int to_shard =
-            Transaction::GetShardIndex(tx.GetToAddr(), num_shards);
+        // unsigned int to_shard = tx.GetShardIndex(num_shards);
         // Use m_sendSCCallsToDS as initial setting
         bool sendToDs = m_mediator.m_lookup->m_sendSCCallsToDS;
         // bool sendToDs = false;

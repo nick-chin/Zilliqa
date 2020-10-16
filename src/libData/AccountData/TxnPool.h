@@ -80,8 +80,8 @@ struct TxnPool {
           (t.GetGasPrice() == tx.GetGasPrice() &&
            t.GetTranID() < tx.GetTranID())) {
         // erase from HashIdxTxns
-        TxnHash hashToBeRemoved = searchNonce->second.GetTranID();
-        auto searchHash = HashIndex.find(searchNonce->second.GetTranID());
+        TxnHash hashToBeRemoved = t.GetTranID();
+        auto searchHash = HashIndex.find(t.GetTranID());
         if (searchHash != HashIndex.end()) {
           HashIndex.erase(searchHash);
         }
@@ -94,8 +94,8 @@ struct TxnPool {
           }
         }
         HashIndex[t.GetTranID()] = t;
-        GasIndex[t.GetGasPrice()][t.GetTranID()] = t;
-        searchNonce->second = t;
+        GasIndex[t.GetGasPrice()].insert(t.GetTranID());
+        NonceIndex[{t.GetSenderPubKey(), t.GetNonce()}] = t.GetTranID();
 
         status = {ErrTxnStatus::MEMPOOL_SAME_NONCE_LOWER_GAS, hashToBeRemoved};
         return true;

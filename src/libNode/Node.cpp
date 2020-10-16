@@ -1930,7 +1930,7 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
         }
         LOG_GENERAL(INFO, "Txn " << txn.GetTranID().hex() << " added to pool");
       }
-      m_createdTxns.insert(txn);
+      m_createdTxns.insert(txn, status);
     }
 
     LOG_GENERAL(INFO, "[TxPool] Txn processed: " << processed_count

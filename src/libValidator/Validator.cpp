@@ -170,11 +170,10 @@ bool Validator::CheckCreatedTransactionFromLookup(const Transaction& tx,
     }
 
     if (Transaction::GetTransactionType(tx) == Transaction::CONTRACT_CALL) {
-      unsigned int correct_shard_to =
-          Transaction::GetShardIndex(tx.GetToAddr(), numShards);
-      if (correct_shard_to != correct_shard_from) {
+      unsigned int correct_shard_to = tx.GetShardIndex(numShards);
+      if (correct_shard_to != correct_shard) {
         LOG_EPOCH(WARNING, m_mediator.m_currentEpochNum,
-                  "The fromShard " << correct_shard_from << " and toShard "
+                  "The fromShard " << correct_shard << " and toShard "
                                    << correct_shard_to
                                    << " is different for the call SC txn");
         // Already checked at lookup

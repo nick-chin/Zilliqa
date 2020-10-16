@@ -564,6 +564,7 @@ bool Node::VerifyTxnsOrdering(const vector<TxnHash>& tranHashes,
 
 void Node::UpdateProcessedTransactions() {
   LOG_MARKER();
+  MempoolInsertionStatus status;
 
   {
     lock_guard<mutex> g(m_mutexCreatedTransactions);
@@ -584,7 +585,7 @@ void Node::UpdateProcessedTransactions() {
           bool hasHigherNonce = tx.GetNonce() >= senderNonce;
 
           if (transactionNotCommitted && hasHigherNonce) {
-                m_createdTxns.insert(kv.second);
+                m_createdTxns.insert(kv.second, status);
           }
         }
     }
