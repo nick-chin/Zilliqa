@@ -631,12 +631,13 @@ void AccountDeltaToProtobuf(const Account* oldAccount,
   protoAccount.set_numbersign(balanceDelta > 0);
   accbase.SetBalance(uint128_t(abs(balanceDelta)));
 
-  uint64_t nonceDelta = 0;
-  if (!SafeMath<uint64_t>::sub(newAccount.GetNonce(), oldAccount->GetNonce(),
-                               nonceDelta)) {
-    return;
-  }
-  accbase.SetNonce(nonceDelta);
+  // uint64_t nonceDelta = 0;
+  // if (!SafeMath<uint64_t>::sub(newAccount.GetNonce(), oldAccount->GetNonce(),
+  //                              nonceDelta)) {
+  //   return;
+  // }
+  // accbase.SetNonce(nonceDelta);
+  accbase.SetNonce(newAccount.GetNonce());
 
   if (newAccount.isContract()) {
     if (fullCopy) {
@@ -672,8 +673,9 @@ void AccountDeltaToProtobuf(const Account* oldAccount,
 }
 
 bool ProtobufToAccountDelta(const ProtoAccount& protoAccount, Account& account,
-                            const Address& addr, const bool fullCopy, bool temp,
-                            bool revertible = false) {
+                            const Address& addr, const uint32_t& shardId,
+                            const uint32_t& numShards,
+                            const bool fullCopy, bool temp, bool revertible = false) {
   if (!CheckRequiredFieldsProtoAccount(protoAccount)) {
     LOG_GENERAL(WARNING, "CheckRequiredFieldsProtoAccount failed");
     return false;
@@ -708,10 +710,11 @@ bool ProtobufToAccountDelta(const ProtoAccount& protoAccount, Account& account,
                               : 0 - accbase.GetBalance().convert_to<int256_t>();
   account.ChangeBalance(balanceDelta);
 
-  if (!account.IncreaseNonceBy(accbase.GetNonce())) {
-    LOG_GENERAL(WARNING, "IncreaseNonceBy failed");
-    return false;
-  }
+  // if (!account.IncreaseNonceBy(accbase.GetNonce())) {
+  //   LOG_GENERAL(WARNING, "IncreaseNonceBy failed");
+  //   return false;
+  // }
+  account.SetNonce(max(account.GetNonce(), accbase.GetNonce()));
 
   if ((protoAccount.code().size() > 0) || account.isContract()) {
     if (fullCopy) {
@@ -746,7 +749,8 @@ bool ProtobufToAccountDelta(const ProtoAccount& protoAccount, Account& account,
       }
     }
 
-    if (accbase.GetStorageRoot() != account.GetStorageRoot()) {
+    // GEORGE: this check might be true even if you have stuff to process
+    // if (accbase.GetStorageRoot() != account.GetStorageRoot()) {
       dev::h256 tmpHash;
 
       map<string, bytes> t_states;
@@ -761,18 +765,20 @@ bool ProtobufToAccountDelta(const ProtoAccount& protoAccount, Account& account,
         toDeleteIndices.emplace_back(entry);
       }
 
-      account.UpdateStates(addr, t_states, toDeleteIndices, temp, revertible);
+      account.UpdateStates(addr, t_states, toDeleteIndices, temp, revertible,
+          shardId, numShards);
 
-      if ((!t_states.empty() || !toDeleteIndices.empty()) &&
-          accbase.GetStorageRoot() != account.GetStorageRoot()) {
-        LOG_GENERAL(WARNING,
-                    "Storage root mismatch. Expected: "
-                        << account.GetStorageRoot().hex()
-                        << " Actual: " << accbase.GetStorageRoot().hex());
-        return false;
-      }
+      // GEORGE: this shouldn't be necessary
+      // if ((!t_states.empty() || !toDeleteIndices.empty()) &&
+      //     accbase.GetStorageRoot() != account.GetStorageRoot()) {
+      //   LOG_GENERAL(WARNING,
+      //               "Storage root mismatch. Expected: "
+      //                   << account.GetStorageRoot().hex()
+      //                   << " Actual: " << accbase.GetStorageRoot().hex());
+      //   return false;
+      // }
     }
-  }
+  // }
 
   return true;
 }
@@ -1141,9 +1147,14 @@ bool ProtobufToShardingStructureAnnouncement(
 }
 
 void TransactionCoreInfoToProtobuf(const TransactionCoreInfo& txnCoreInfo,
-                                   ProtoTransactionCoreInfo& protoTxnCoreInfo) {
+                                   ProtoTransactionCoreInfo& protoTxnCoreInfo,
+                                   bool skipNonce) {
   protoTxnCoreInfo.set_version(txnCoreInfo.version);
-  protoTxnCoreInfo.set_nonce(txnCoreInfo.nonce);
+  if (skipNonce) {
+    protoTxnCoreInfo.set_nonce(0);
+  } else {
+    protoTxnCoreInfo.set_nonce(txnCoreInfo.nonce);
+  }
   protoTxnCoreInfo.set_toaddr(txnCoreInfo.toAddr.data(),
                               txnCoreInfo.toAddr.size);
   SerializableToProtobufByteArray(txnCoreInfo.senderPubKey,
@@ -1200,7 +1211,7 @@ void TransactionToProtobuf(const Transaction& transaction,
   protoTransaction.set_tranid(transaction.GetTranID().data(),
                               transaction.GetTranID().size);
   TransactionCoreInfoToProtobuf(transaction.GetCoreInfo(),
-                                *protoTransaction.mutable_info());
+                                *protoTransaction.mutable_info(), false);
 
   SerializableToProtobufByteArray(transaction.GetSignature(),
                                   *protoTransaction.mutable_signature());
@@ -1230,8 +1241,14 @@ bool ProtobufToTransaction(const ProtoTransaction& protoTransaction,
 
   PROTOBUFBYTEARRAYTOSERIALIZABLE(protoTransaction.signature(), signature);
 
-  bytes txnData;
+  bytes txnData, txnDataV;
   if (!SerializeToArray(protoTransaction.info(), txnData, 0)) {
+    LOG_GENERAL(WARNING, "Serialize protoTransaction core info failed");
+    return false;
+  }
+  auto ptV = protoTransaction.info();
+  ptV.set_nonce(0);
+  if (!SerializeToArray(ptV, txnDataV, 0)) {
     LOG_GENERAL(WARNING, "Serialize protoTransaction core info failed");
     return false;
   }
@@ -1249,7 +1266,7 @@ bool ProtobufToTransaction(const ProtoTransaction& protoTransaction,
   }
 
   // Verify signature
-  if (!Schnorr::Verify(txnData, signature, txnCoreInfo.senderPubKey)) {
+  if (!Schnorr::Verify(txnDataV, signature, txnCoreInfo.senderPubKey)) {
     LOG_GENERAL(WARNING, "Signature verification failed");
     return false;
   }
@@ -2737,8 +2754,9 @@ bool Messenger::GetAccountStoreDelta(const bytes& src,
 
     t_account = *oriAccount;
     account = *oriAccount;
-    if (!ProtobufToAccountDelta(entry.account(), account, address, fullCopy,
-                                temp, revertible)) {
+    if (!ProtobufToAccountDelta(entry.account(), account, address,
+                                UNKNOWN_SHARD_ID, UNKNOWN_SHARD_ID,
+                                fullCopy, temp, revertible)) {
       LOG_GENERAL(WARNING,
                   "ProtobufToAccountDelta failed for account at address "
                       << address.hex());
@@ -2755,7 +2773,9 @@ bool Messenger::GetAccountStoreDelta(const bytes& src,
 bool Messenger::GetAccountStoreDelta(const bytes& src,
                                      const unsigned int offset,
                                      AccountStoreTemp& accountStoreTemp,
-                                     bool temp) {
+                                     bool temp, const uint32_t& shardId,
+                                     const uint32_t& numShards) {
+  LOG_MARKER();
   ProtoAccountStore result;
   result.ParseFromArray(src.data() + offset, src.size() - offset);
 
@@ -2794,8 +2814,9 @@ bool Messenger::GetAccountStoreDelta(const bytes& src,
 
     account = *oriAccount;
 
-    if (!ProtobufToAccountDelta(entry.account(), account, address, fullCopy,
-                                temp)) {
+    if (!ProtobufToAccountDelta(entry.account(), account, address,
+                                shardId, numShards,
+                                fullCopy, temp)) {
       LOG_GENERAL(WARNING,
                   "ProtobufToAccountDelta failed for account at address "
                       << address.hex());
@@ -3183,10 +3204,11 @@ bool Messenger::GetFallbackBlock(const bytes& src, const unsigned int offset,
 }
 
 bool Messenger::SetTransactionCoreInfo(bytes& dst, const unsigned int offset,
-                                       const TransactionCoreInfo& transaction) {
+                                       const TransactionCoreInfo& transaction,
+                                       bool skipNonce) {
   ProtoTransactionCoreInfo result;
 
-  TransactionCoreInfoToProtobuf(transaction, result);
+  TransactionCoreInfoToProtobuf(transaction, result, skipNonce);
 
   if (!result.IsInitialized()) {
     LOG_GENERAL(WARNING, "ProtoTransactionCoreInfo initialization failed");
@@ -4878,17 +4900,21 @@ bool Messenger::SetNodeForwardTxnBlock(
   unsigned int txnsCurrentCount = 0, txnsGeneratedCount = 0, msg_size = 0;
 
   for (const auto& txn : txnsCurrent) {
-    if (msg_size >= PACKET_BYTESIZE_LIMIT) {
-      break;
-    }
+    // if (msg_size >= PACKET_BYTESIZE_LIMIT) {
+    //   break;
+    // }
 
-    auto protoTxn = std::make_unique<ProtoTransaction>();
+    // auto protoTxn = std::make_unique<ProtoTransaction>();
+    // if (msg_size >= PACKET_BYTESIZE_LIMIT) {
+    //   break;
+    // }
+    ProtoTransaction* protoTxn = new ProtoTransaction();
     TransactionToProtobuf(txn, *protoTxn);
     unsigned txn_size = protoTxn->ByteSize();
-    if ((msg_size + txn_size) > PACKET_BYTESIZE_LIMIT &&
-        txn_size >= SMALL_TXN_SIZE) {
-      continue;
-    }
+    // if ((msg_size + txn_size) > PACKET_BYTESIZE_LIMIT &&
+    //     txn_size >= SMALL_TXN_SIZE) {
+    //   continue;
+    // }
     *result.add_transactions() = *protoTxn;
     txnsCurrentCount++;
     msg_size += protoTxn->ByteSize();
@@ -4957,17 +4983,27 @@ bool Messenger::SetNodeForwardTxnBlock(bytes& dst, const unsigned int offset,
   unsigned int txnsCount = 0, msg_size = 0;
 
   for (const auto& txn : txns) {
-    if (msg_size >= PACKET_BYTESIZE_LIMIT) {
-      break;
-    }
+    // if (msg_size >= PACKET_BYTESIZE_LIMIT) {
+    //   break;
+    // }
 
-    auto protoTxn = std::make_unique<ProtoTransaction>();
+    // auto protoTxn = std::make_unique<ProtoTransaction>();
+    // TransactionToProtobuf(txn, *protoTxn);
+    // const unsigned txn_size = protoTxn->ByteSize();
+    // if ((msg_size + txn_size) > PACKET_BYTESIZE_LIMIT &&
+    //     txn_size >= SMALL_TXN_SIZE) {
+    //   continue;
+    // }
+    // if (msg_size >= PACKET_BYTESIZE_LIMIT) {
+    //   break;
+    // }
+    ProtoTransaction* protoTxn = new ProtoTransaction();
     TransactionToProtobuf(txn, *protoTxn);
-    const unsigned txn_size = protoTxn->ByteSize();
-    if ((msg_size + txn_size) > PACKET_BYTESIZE_LIMIT &&
-        txn_size >= SMALL_TXN_SIZE) {
-      continue;
-    }
+    unsigned txn_size = protoTxn->ByteSize();
+    // if ((msg_size + txn_size) > PACKET_BYTESIZE_LIMIT &&
+    //     txn_size >= SMALL_TXN_SIZE) {
+    //   continue;
+    // }
     *result.add_transactions() = *protoTxn;
     txnsCount++;
     msg_size += txn_size;

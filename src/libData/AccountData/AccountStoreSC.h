@@ -193,13 +193,16 @@ class AccountStoreSC : public AccountStoreBase<MAP> {
                          const uint32_t& version, bool is_library,
                          const uint64_t& available_gas,
                          const boost::multiprecision::uint128_t& balance,
-                         bool& ret, TransactionReceipt& receipt);
+                         bool& ret, TransactionReceipt& receipt,
+                         const Json::Value sharding_input = Json::objectValue);
 
   /// verify the return from scilla_checker for deployment is valid
   /// expose in protected for using by data migration
   bool ParseContractCheckerOutput(const std::string& checkerPrint,
                                   TransactionReceipt& receipt,
-                                  bytes& map_depth_data, uint64_t& gasRemained,
+                                  bytes& map_depth_data,
+                                  bytes& sharding_info,
+                                  uint64_t& gasRemained,
                                   bool is_library = false);
 
   /// external interface for processing txn

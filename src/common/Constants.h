@@ -59,6 +59,7 @@ const unsigned int IP_SIZE = 16;
 const unsigned int PORT_SIZE = 4;
 
 const unsigned int NUM_PEERS_TO_SEND_IN_A_SHARD = 20;
+const uint32_t UNKNOWN_SHARD_ID = UINT32_MAX;
 
 // Number of initial ds epoch number, including genesis epoch
 const unsigned int INIT_DS_EPOCH_NUM = 2;
@@ -370,6 +371,8 @@ extern const std::string LIBRARY_CODE_EXTENSION;
 extern const std::string EXTLIB_FOLDER;
 extern const bool ENABLE_SCILLA_MULTI_VERSION;
 extern const std::string FIELDS_MAP_DEPTH_INDICATOR;
+extern const bool SEMANTIC_SHARDING;
+extern const std::string SHARDING_INFO_INDICATOR;
 extern const bool LOG_SC;
 extern const bool DISABLE_SCILLA_LIB;
 extern const unsigned int SCILLA_SERVER_PENDING_IN_MS;

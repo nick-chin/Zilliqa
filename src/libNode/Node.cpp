@@ -1705,10 +1705,10 @@ bool Node::ProcessTxnPacketFromLookup([[gnu::unused]] const bytes& message,
         m_state == MICROBLOCK_CONSENSUS));
 
   if (fromLookup || !properState) {
-    if ((epochNumber + (fromLookup ? 0 : 1)) < m_mediator.m_currentEpochNum) {
-      LOG_GENERAL(WARNING, "Txn packet from older epoch, discard");
-      return false;
-    }
+    // if ((epochNumber + (fromLookup ? 0 : 1)) < m_mediator.m_currentEpochNum) {
+    //   LOG_GENERAL(WARNING, "Txn packet from older epoch, discard");
+    //   return false;
+    // }
     lock_guard<mutex> g(m_mutexTxnPacketBuffer);
     LOG_GENERAL(INFO, string(fromLookup ? "Received txn packet from lookup"
                                         : "Received not in the proper state") +
@@ -1765,9 +1765,8 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
 
   if (epochNum + PACKET_EPOCH_LATE_ALLOW < m_mediator.m_currentEpochNum) {
     LOG_EPOCH(WARNING, m_mediator.m_currentEpochNum,
-              "The epoch when the packet from is too late (" << epochNum
-                                                             << "), reject");
-    return false;
+              "The epoch when the packet from is from an earlier epoch:" << epochNum );
+    // return false;
   }
 
   if (dsBlockNum !=
@@ -1873,6 +1872,8 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
   }
 #endif  // DM_TEST_DM_MORETXN_HALF
 
+
+  m_txnPacketsInQueue.fetch_add(1, std::memory_order_seq_cst);
   // Process the txns
   unsigned int processed_count = 0;
 
@@ -1902,8 +1903,9 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
 
   {
     lock_guard<mutex> g(m_mutexCreatedTransactions);
+
     LOG_GENERAL(INFO,
-                "TxnPool size before processing: " << m_createdTxns.size());
+                "[TxPool] TxnPool size before processing: " << m_createdTxns.size());
 
     for (const auto& txn : checkedTxns) {
       MempoolInsertionStatus status;
@@ -1928,9 +1930,10 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
         }
         LOG_GENERAL(INFO, "Txn " << txn.GetTranID().hex() << " added to pool");
       }
+      m_createdTxns.insert(txn);
     }
 
-    LOG_GENERAL(INFO, "Txn processed: " << processed_count
+    LOG_GENERAL(INFO, "[TxPool] Txn processed: " << processed_count
                                         << " TxnPool size after processing: "
                                         << m_createdTxns.size());
   }
@@ -1941,6 +1944,8 @@ bool Node::ProcessTxnPacketFromLookupCore(const bytes& message,
       m_unconfirmedTxns.emplace(txnhashStatus);
     }
   }
+  
+  m_txnPacketsInQueue.fetch_sub(1, std::memory_order_seq_cst);
 
   if (LOG_PARAMETERS) {
     LOG_STATE("[TXNPKT-END]["

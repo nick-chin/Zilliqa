@@ -529,6 +529,10 @@ const bool ENABLE_SCILLA_MULTI_VERSION{
     "true"};
 const string FIELDS_MAP_DEPTH_INDICATOR{
     ReadConstantString("FIELDS_MAP_DEPTH_INDICATOR", "node.smart_contract.")};
+const bool SEMANTIC_SHARDING{
+    ReadConstantString("SEMANTIC_SHARDING", "node.smart_contract.") == "true"};
+const string SHARDING_INFO_INDICATOR{
+    ReadConstantString("SHARDING_INFO_INDICATOR", "node.smart_contract.")};
 const bool LOG_SC{ReadConstantString("LOG_SC", "node.smart_contract.") ==
                   "true"};
 const bool DISABLE_SCILLA_LIB{

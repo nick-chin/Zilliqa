@@ -276,13 +276,17 @@ void Node::ProcessTransactionWhenShardLeader(
   if (ENABLE_ACCOUNTS_POPULATING && UPDATE_PREGENED_ACCOUNTS) {
     UpdateBalanceForPreGeneratedAccounts();
   }
-
-  lock_guard<mutex> g(m_mutexCreatedTransactions);
-
-  t_createdTxns = m_createdTxns;
+  TxnPool t_createdTxns;
+  {
+    LOG_GENERAL(INFO, "Waiting on " << m_txnPacketsInQueue.load() << " txnPackets to finish processing");
+    while (m_txnPacketsInQueue.load() != 0) {this_thread::sleep_for(chrono::milliseconds(100));}
+    lock_guard<mutex> g(m_mutexCreatedTransactions);
+    t_createdTxns = m_createdTxns;
+  }
   map<Address, map<uint64_t, Transaction>> t_addrNonceTxnMap;
   t_processedTransactions.clear();
   m_TxnOrder.clear();
+  LOG_EPOCH(INFO, m_mediator.m_currentEpochNum, "[TxPool](Leader of shard " << m_myshardId << ") Have " << t_createdTxns.size () << " transactions");
 
   if (LOG_PARAMETERS) {
     LOG_STATE("[TXNPROC-BEG][" << m_mediator.m_currentEpochNum
@@ -292,20 +296,20 @@ void Node::ProcessTransactionWhenShardLeader(
 
   bool txnProcTimeout = false;
 
-  auto txnProcTimer = [this, &txnProcTimeout]() -> void {
-    NotifyTimeout(txnProcTimeout);
-  };
+  // auto txnProcTimer = [this, &txnProcTimeout]() -> void {
+  //   NotifyTimeout(txnProcTimeout);
+  // };
 
-  DetachedFunction(1, txnProcTimer);
+  // DetachedFunction(1, txnProcTimer);
 
-  this_thread::sleep_for(chrono::milliseconds(100));
+  // this_thread::sleep_for(chrono::milliseconds(100));
 
   auto findOneFromAddrNonceTxnMap =
       [](Transaction& t,
          map<Address, map<uint64_t, Transaction>>& t_addrNonceTxnMap) -> bool {
     for (auto it = t_addrNonceTxnMap.begin(); it != t_addrNonceTxnMap.end();
          it++) {
-      if (it->second.begin()->first ==
+      if (it->second.begin()->first >=
           AccountStore::GetInstance().GetNonceTemp(it->first) + 1) {
         t = move(it->second.begin()->second);
         it->second.erase(it->second.begin());
@@ -341,9 +345,45 @@ void Node::ProcessTransactionWhenShardLeader(
     Transaction t;
     TransactionReceipt tr;
 
-    // check m_addrNonceTxnMap contains any txn meets right nonce,
-    // if contains, process it
-    if (findOneFromAddrNonceTxnMap(t, t_addrNonceTxnMap)) {
+    if (t_createdTxns.findOne(t)) {
+      // LOG_GENERAL(INFO, "findOneFromCreated");
+
+      Address senderAddr = t.GetSenderAddr();
+      uint128_t expectedNonce = AccountStore::GetInstance().GetNonceTemp(senderAddr) + 1;
+
+      if (t.GetNonce() >= expectedNonce) {
+        // LOG_GENERAL(INFO, "High nonce: "
+        //                     << t.GetNonce() << " cur sender " <<
+        //                     senderAddr.hex()
+        //                     << " nonce: "
+        //                     <<
+        //                     AccountStore::GetInstance().GetNonceTemp(senderAddr));
+        auto it1 = t_addrNonceTxnMap.find(senderAddr);
+        if (it1 != t_addrNonceTxnMap.end()) {
+          auto it2 = it1->second.find(t.GetNonce());
+          if (it2 != it1->second.end()) {
+            // found the txn with same addr and same nonce
+            // then compare the gasprice and remains the higher one
+            if (t.GetGasPrice() > it2->second.GetGasPrice()) {
+              it2->second = t;
+            }
+            continue;
+          }
+        }
+        t_addrNonceTxnMap[senderAddr].insert({t.GetNonce(), t});
+      }
+      // if nonce too small, ignore it
+      // TODO: what if microblock gets lost!
+      else if (t.GetNonce() < expectedNonce) {
+        LOG_GENERAL(INFO,
+                    "Nonce too small"
+                        << " Expected "
+                        <<
+                        AccountStore::GetInstance().GetNonceTemp(senderAddr)
+                        << " Found " << t.GetNonce());
+      }
+    }
+    else if (findOneFromAddrNonceTxnMap(t, t_addrNonceTxnMap)) {
       // check whether m_createdTransaction have transaction with same Addr and
       // nonce if has and with larger gasPrice then replace with that one.
       // (*optional step)
@@ -370,13 +410,15 @@ void Node::ProcessTransactionWhenShardLeader(
           LOG_GENERAL(WARNING, "m_txnFees addition unsafe!");
           break;
         }
-        appendOne(t, tr);
 
+        appendOne(t, tr);
+        LOG_GENERAL(INFO, "Executed tx with nonce " << t.GetNonce());
         continue;
       } else {
         droppedTxns.emplace_back(t.GetTranID(), error_code);
       }
     }
+    // nick - entire else if may need commenting out
     // if no txn in u_map meet right nonce process new come-in transactions
     else if (t_createdTxns.findOne(t)) {
       // LOG_GENERAL(INFO, "findOneFromCreated");
@@ -470,7 +512,8 @@ void Node::ProcessTransactionWhenShardLeader(
                                << " Time=" << elaspedTimeMs);
   }
   // Put txns in map back into pool
-  ReinstateMemPool(t_addrNonceTxnMap, gasLimitExceededTxnBuffer, droppedTxns);
+  // nick - ReinstateMemPool was commented out
+  // ReinstateMemPool(t_addrNonceTxnMap, gasLimitExceededTxnBuffer, droppedTxns);
 }
 
 bool Node::VerifyTxnsOrdering(const vector<TxnHash>& tranHashes,
@@ -524,9 +567,31 @@ void Node::UpdateProcessedTransactions() {
 
   {
     lock_guard<mutex> g(m_mutexCreatedTransactions);
-    m_createdTxns = move(t_createdTxns);
+    lock_guard<mutex> q(m_mutexMicroBlock);
+
+    // Mempool changes only if we had consensus
+    if (m_mediator.m_node->m_microblock != nullptr) {
+      t_createdTxns = m_createdTxns;
+      m_createdTxns.clear();
+        dev::h256s mbTxHashes = m_mediator.m_node->m_microblock->GetTranHashes();
+        for (const auto& kv : t_createdTxns.HashIndex) {
+          auto tx = kv.second;
+          Address senderAddr = tx.GetSenderAddr();
+          auto senderNonce = AccountStore::GetInstance().GetNonce(senderAddr);
+
+          bool transactionNotCommitted =
+            std::find(mbTxHashes.begin(), mbTxHashes.end(), kv.first) == mbTxHashes.end();
+          bool hasHigherNonce = tx.GetNonce() >= senderNonce;
+
+          if (transactionNotCommitted && hasHigherNonce) {
+                m_createdTxns.insert(kv.second);
+          }
+        }
+    }
+
     t_createdTxns.clear();
   }
+
   if (m_mediator.m_currentEpochNum % NUM_STORE_TX_BODIES_INTERVAL == 0) {
     BlockStorage::GetBlockStorage().ResetDB(
         BlockStorage::DBTYPE::PROCESSED_TEMP);
@@ -550,12 +615,17 @@ void Node::ProcessTransactionWhenShardBackup(
     UpdateBalanceForPreGeneratedAccounts();
   }
 
-  lock_guard<mutex> g(m_mutexCreatedTransactions);
-
-  t_createdTxns = m_createdTxns;
+  TxnPool t_createdTxns;
+  {
+    LOG_GENERAL(INFO, "Waiting on" << m_txnPacketsInQueue.load() << " txnPackets to finish processing");
+    while (m_txnPacketsInQueue.load() != 0) {this_thread::sleep_for(chrono::milliseconds(100));}
+    lock_guard<mutex> g(m_mutexCreatedTransactions);
+    t_createdTxns = m_createdTxns;
+  }
   m_expectedTranOrdering.clear();
   map<Address, map<uint64_t, Transaction>> t_addrNonceTxnMap;
   t_processedTransactions.clear();
+  LOG_EPOCH(INFO, m_mediator.m_currentEpochNum, "[TxPool](Backup in shard " << m_myshardId << ") Have " << t_createdTxns.size () << " transactions");
 
   if (LOG_PARAMETERS) {
     LOG_STATE("[TXNPROC-BEG][" << m_mediator.m_currentEpochNum
@@ -565,13 +635,13 @@ void Node::ProcessTransactionWhenShardBackup(
 
   bool txnProcTimeout = false;
 
-  auto txnProcTimer = [this, &txnProcTimeout]() -> void {
-    NotifyTimeout(txnProcTimeout);
-  };
+  // auto txnProcTimer = [this, &txnProcTimeout]() -> void {
+  //   NotifyTimeout(txnProcTimeout);
+  // };
 
-  DetachedFunction(1, txnProcTimer);
+  // DetachedFunction(1, txnProcTimer);
 
-  this_thread::sleep_for(chrono::milliseconds(100));
+  // this_thread::sleep_for(chrono::milliseconds(100));
 
   auto findOneFromAddrNonceTxnMap =
       [](Transaction& t,
@@ -579,7 +649,7 @@ void Node::ProcessTransactionWhenShardBackup(
       -> bool {
     for (auto it = t_addrNonceTxnMap.begin(); it != t_addrNonceTxnMap.end();
          it++) {
-      if (it->second.begin()->first ==
+      if (it->second.begin()->first >=
           AccountStore::GetInstance().GetNonceTemp(it->first) + 1) {
         t = move(it->second.begin()->second);
         it->second.erase(it->second.begin());
@@ -615,9 +685,41 @@ void Node::ProcessTransactionWhenShardBackup(
     Transaction t;
     TransactionReceipt tr;
 
+    // first add transactions into t_addrNonceTxnMap
+    if (t_createdTxns.findOne(t)) {
+      Address senderAddr = t.GetSenderAddr();
+      uint128_t expectedNonce = AccountStore::GetInstance().GetNonceTemp(senderAddr) + 1;
+
+      if (t.GetNonce() >= expectedNonce) {
+        auto it1 = t_addrNonceTxnMap.find(senderAddr);
+        if (it1 != t_addrNonceTxnMap.end()) {
+          auto it2 = it1->second.find(t.GetNonce());
+          if (it2 != it1->second.end()) {
+            // found the txn with same addr and same nonce
+            // then compare the gasprice and remains the higher one
+            if (t.GetGasPrice() > it2->second.GetGasPrice()) {
+              it2->second = t;
+            }
+            continue;
+          }
+        }
+        // LOG_GENERAL(INFO, "Expected nonce " << expectedNonce << " got " << t.GetNonce());
+        t_addrNonceTxnMap[senderAddr].insert({t.GetNonce(), t});
+      }
+      // if nonce too small, ignore it
+      // TODO: what if microblock gets lost!
+      else if (t.GetNonce() < expectedNonce) {
+        LOG_GENERAL(INFO,
+                    "Nonce too small"
+                        << " Expected "
+                        <<
+                        AccountStore::GetInstance().GetNonceTemp(senderAddr)
+                        << " Found " << t.GetNonce());
+      }
+    }
     // check t_addrNonceTxnMap contains any txn meets right nonce,
     // if contains, process it
-    if (findOneFromAddrNonceTxnMap(t, t_addrNonceTxnMap)) {
+    else if (findOneFromAddrNonceTxnMap(t, t_addrNonceTxnMap)) {
       // check whether m_createdTransaction have transaction with same Addr and
       // nonce if has and with larger gasPrice then replace with that one.
       // (*optional step)
@@ -645,6 +747,7 @@ void Node::ProcessTransactionWhenShardBackup(
           break;
         }
         appendOne(t, tr);
+        LOG_GENERAL(INFO, "Executed tx with nonce " << t.GetNonce());
         continue;
       }
 
@@ -653,6 +756,7 @@ void Node::ProcessTransactionWhenShardBackup(
       }
 
     }
+    // nick - entire else if may need commenting out
     // if no txn in u_map meet right nonce process new come-in transactions
     else if (t_createdTxns.findOne(t)) {
       Address senderAddr = t.GetSenderAddr();
@@ -735,8 +839,8 @@ void Node::ProcessTransactionWhenShardBackup(
                                << " NumTx=" << t_createdTxns.size()
                                << " Time=" << elaspedTimeMs);
   }
-
-  ReinstateMemPool(t_addrNonceTxnMap, gasLimitExceededTxnBuffer, droppedTxns);
+  // nick - ReinstateMemPool was commented out
+  // ReinstateMemPool(t_addrNonceTxnMap, gasLimitExceededTxnBuffer, droppedTxns);
 }
 
 void Node::PutTxnsInTempDataBase(
@@ -803,6 +907,7 @@ void Node::ReinstateMemPool(
   unique_lock<shared_timed_mutex> g(m_unconfirmedTxnsMutex);
 
   MempoolInsertionStatus status;
+  uint64_t count = 0;
   // Put remaining txns back in pool
   for (const auto& kv : addrNonceTxnMap) {
     for (const auto& nonceTxn : kv.second) {
@@ -815,6 +920,7 @@ void Node::ReinstateMemPool(
   }
 
   for (const auto& t : gasLimitExceededTxnBuffer) {
+    count++;
     t_createdTxns.insert(t, status);
     LOG_GENERAL(INFO, "Txn " << t.GetTranID() << ", Status: " << status.first
                              << "  " << status.second);
@@ -827,6 +933,9 @@ void Node::ReinstateMemPool(
                 "[DTXN]" << txnHashStatus.first << " " << txnHashStatus.second);
     m_unconfirmedTxns.emplace(txnHashStatus);
   }
+
+  LOG_EPOCH(INFO, m_mediator.m_currentEpochNum, "[TxPool] Put back " << count << " transactions into mempool");
+
 }
 
 void Node::PutProcessedInUnconfirmedTxns() {
@@ -1469,7 +1578,7 @@ bool Node::CheckMicroBlockValidity(bytes& errorMsg,
          CheckMicroBlockTimestamp() &&
          CheckMicroBlockGasLimit(microblock_gas_limit) &&
          CheckMicroBlockHashes(errorMsg) && CheckMicroBlockTxnRootHash() &&
-         CheckMicroBlockStateDeltaHash() && CheckMicroBlockTranReceiptHash();
+         CheckMicroBlockTranReceiptHash();
 
   // Check gas limit (must satisfy some equations)
   // Check gas used (must be <= gas limit)

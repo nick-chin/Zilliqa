@@ -99,7 +99,7 @@ class Transaction : public SerializableDataBlock {
   /// Implements the Serialize function inherited from Serializable.
   bool Serialize(bytes& dst, unsigned int offset) const override;
 
-  bool SerializeCoreFields(bytes& dst, unsigned int offset) const;
+  bool SerializeCoreFields(bytes& dst, unsigned int offset, bool skipNonce=false) const;
 
   /// Implements the Deserialize function inherited from Serializable.
   bool Deserialize(const bytes& src, unsigned int offset) override;
@@ -148,10 +148,6 @@ class Transaction : public SerializableDataBlock {
   /// Set the signature
   void SetSignature(const Signature& signature);
 
-  /// Identifies the shard number that should process the transaction.
-  static unsigned int GetShardIndex(const Address& fromAddr,
-                                    unsigned int numShards);
-
   enum ContractType {
     NON_CONTRACT = 0,
     CONTRACT_CREATION,
@@ -175,6 +171,15 @@ class Transaction : public SerializableDataBlock {
     }
 
     return ERROR;
+  }
+
+  static std::string ContractTypeToString(ContractType ct) {
+    switch (ct) {
+      case NON_CONTRACT: return "NON_CONTRACT";
+      case CONTRACT_CREATION: return "CONTRACT_CREATION";
+      case CONTRACT_CALL: return "CONTRACT_CALL";
+      default: return "ERROR";
+    }
   }
 
   /// Equality comparison operator.

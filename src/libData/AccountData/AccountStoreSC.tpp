@@ -58,15 +58,16 @@ void AccountStoreSC<MAP>::InvokeInterpreter(
     INVOKE_TYPE invoke_type, std::string& interprinterPrint,
     const uint32_t& version, bool is_library, const uint64_t& available_gas,
     const boost::multiprecision::uint128_t& balance, bool& ret,
-    TransactionReceipt& receipt) {
+    TransactionReceipt& receipt, const Json::Value sharding_input) {
   auto func2 = [this, &interprinterPrint, &invoke_type, &version, &is_library,
-                &available_gas, &balance, &ret, &receipt]() mutable -> void {
+                &available_gas, &balance, &ret, &receipt, sharding_input]() mutable -> void {
     switch (invoke_type) {
       case CHECKER:
         if (!ScillaClient::GetInstance().CallChecker(
                 version,
                 ScillaUtils::GetContractCheckerJson(m_root_w_version,
-                                                    is_library, available_gas),
+                                                    is_library, available_gas,
+                                                    sharding_input),
                 interprinterPrint)) {
         }
         break;
@@ -157,6 +158,10 @@ bool AccountStoreSC<MAP>::UpdateAccounts(const uint64_t& blockNum,
     }
     case Transaction::CONTRACT_CREATION: {
       LOG_GENERAL(INFO, "Create contract");
+      std::chrono::system_clock::time_point tpStart;
+      if (ENABLE_CHECK_PERFORMANCE_LOG) {
+        tpStart = r_timer_start();
+      }
 
       bool validToTransferBalance = true;
 
@@ -238,11 +243,41 @@ bool AccountStoreSC<MAP>::UpdateAccounts(const uint64_t& blockNum,
       std::map<Address, std::pair<std::string, std::string>> extlibs_exports;
       uint32_t scilla_version;
 
+      Json::Value sharding_input = Json::objectValue;
       try {
+        bytes initData = transaction.GetData();
+        bytes filteredData = initData;
+
+        if (SEMANTIC_SHARDING) {
+          // Handle optional sharding parameters in transaction init data
+          Json::Value init_data = Json::arrayValue;
+          // Filter out sharding parameters if they exist
+          Json::Value filtered_init_data = Json::arrayValue;
+          if (!initData.empty() && JSONUtils::GetInstance().convertStrtoJson(
+                DataConversion::CharArrayToString(initData), init_data)) {
+
+            for(const auto& entry : init_data) {
+              if (entry.isMember("vname") && entry.isMember("type")
+                  && entry.isMember("value")
+                  && entry["vname"].asString() == "_sharding_input"
+                  && entry["value"].isString()) {
+
+                std::string si = entry["value"].asString();
+                JSONUtils::GetInstance().convertStrtoJson(si, sharding_input);
+              } else {
+                filtered_init_data.append(entry);
+              }
+            }
+          }
+
+          filteredData = DataConversion::StringToCharArray(
+            JSONUtils::GetInstance().convertJsontoStr(filtered_init_data));
+        }
+
         // Initiate the contract account, including setting the contract code
         // store the immutable states
         if (!toAccount->InitContract(transaction.GetCode(),
-                                     transaction.GetData(), toAddr, blockNum)) {
+                                     filteredData, toAddr, blockNum)) {
           LOG_GENERAL(WARNING, "InitContract failed");
           init = false;
         }
@@ -302,26 +337,37 @@ bool AccountStoreSC<MAP>::UpdateAccounts(const uint64_t& blockNum,
       std::string checkerPrint;
 
       InvokeInterpreter(CHECKER, checkerPrint, scilla_version, is_library,
-                        gasRemained, 0, ret_checker, receipt);
+                        gasRemained, 0, ret_checker, receipt, sharding_input);
 
       // parse checker output
       bytes map_depth_data;
+      bytes sharding_info;
 
       if (ret_checker &&
           !ParseContractCheckerOutput(checkerPrint, receipt, map_depth_data,
-                                      gasRemained, is_library)) {
+                                      sharding_info, gasRemained, is_library)) {
         ret_checker = false;
       }
 
       if (ret_checker && !is_library) {
-        std::map<std::string, bytes> t_map_depth_map;
-        t_map_depth_map.emplace(
+        std::map<std::string, bytes> t_metadata;
+        t_metadata.emplace(
             Contract::ContractStorage2::GetContractStorage().GenerateStorageKey(
                 toAddr, FIELDS_MAP_DEPTH_INDICATOR, {}),
             map_depth_data);
-        toAccount->UpdateStates(toAddr, t_map_depth_map, {}, true);
+        if (SEMANTIC_SHARDING) {
+          t_metadata.emplace(
+              Contract::ContractStorage2::GetContractStorage().GenerateStorageKey(
+                  toAddr, SHARDING_INFO_INDICATOR, {}),
+              sharding_info);
+        }
+        toAccount->UpdateStates(toAddr, t_metadata, {}, true);
       }
 
+      if (ENABLE_CHECK_PERFORMANCE_LOG) {
+          LOG_GENERAL(INFO, "Typechecked contract in "
+                              << r_timer_end(tpStart) << " microseconds");
+      }
       // *************************************************************************
       // Undergo scilla runner
       bool ret = true;
@@ -570,7 +616,7 @@ bool AccountStoreSC<MAP>::UpdateAccounts(const uint64_t& blockNum,
                         gasRemained, this->GetBalance(toAddr), ret, receipt);
 
       if (ENABLE_CHECK_PERFORMANCE_LOG) {
-        LOG_GENERAL(DEBUG, "Executed root transition in "
+        LOG_GENERAL(INFO, "Executed root transition in "
                                << r_timer_end(tpStart) << " microseconds");
       }
 
@@ -652,7 +698,7 @@ bool AccountStoreSC<MAP>::UpdateAccounts(const uint64_t& blockNum,
       /// since txn succeeded, commit the atomic buffer
       m_storageRootUpdateBuffer.insert(m_storageRootUpdateBufferAtomic.begin(),
                                        m_storageRootUpdateBufferAtomic.end());
-      LOG_GENERAL(INFO, "Executing contract transaction finished");
+      LOG_GENERAL(INFO, "Executing contract transaction finished (nonce = " << transaction.GetNonce() << ")");
       break;
     }
     case Transaction::CONTRACT_CREATION: {
@@ -781,6 +827,7 @@ void AccountStoreSC<MAP>::ExportCommonFiles(
     const std::map<Address, std::pair<std::string, std::string>>&
         extlibs_exports) {
   os.open(INIT_JSON);
+
   if (LOG_SC) {
     LOG_GENERAL(
         INFO, "init data to export: "
@@ -916,7 +963,8 @@ bool AccountStoreSC<MAP>::ExportCallContractFiles(
 template <class MAP>
 bool AccountStoreSC<MAP>::ParseContractCheckerOutput(
     const std::string& checkerPrint, TransactionReceipt& receipt,
-    bytes& map_depth_data, uint64_t& gasRemained, bool is_library) {
+    bytes& map_depth_data, bytes& sharding_info,
+    uint64_t& gasRemained, bool is_library) {
   LOG_MARKER();
 
   LOG_GENERAL(
@@ -985,6 +1033,20 @@ bool AccountStoreSC<MAP>::ParseContractCheckerOutput(
 
       map_depth_data = DataConversion::StringToCharArray(
           JSONUtils::GetInstance().convertJsontoStr(map_depth_json));
+
+      if (SEMANTIC_SHARDING) {
+        if (!root.isMember("sharding_info")
+            || !root["sharding_info"].isMember("field_pcms")
+            || !root["sharding_info"].isMember("transition_constraints")) {
+          receipt.AddError(CHECKER_FAILED);
+          return false;
+        }
+
+        Json::Value sharding_info_json = root["sharding_info"];
+
+        sharding_info = DataConversion::StringToCharArray(
+            JSONUtils::GetInstance().convertJsontoStr(sharding_info_json));
+      }
     }
   } catch (const std::exception& e) {
     LOG_GENERAL(WARNING, "Exception caught: " << e.what() << " checkerPrint: "
@@ -1318,7 +1380,7 @@ bool AccountStoreSC<MAP>::ParseCallContractJsonOutput(
       if (ENABLE_CHECK_PERFORMANCE_LOG) {
         LOG_GENERAL(DEBUG,
                     "LDB Write (microseconds) = " << r_timer_end(tpStart));
-        LOG_GENERAL(DEBUG, "Gas used = " << (startGas - gasRemained));
+        LOG_GENERAL(INFO, "Gas used = " << (startGas - gasRemained));
       }
 
       if (t_ret) {
@@ -1342,8 +1404,8 @@ bool AccountStoreSC<MAP>::ParseCallContractJsonOutput(
       // check whether the recipient contract is in the same shard with the
       // current contract
       if (!m_curIsDS &&
-          (Transaction::GetShardIndex(curContractAddr, m_curNumShards) !=
-           Transaction::GetShardIndex(recipient, m_curNumShards))) {
+          (AddressShardIndex(curContractAddr, m_curNumShards) !=
+           AddressShardIndex(recipient, m_curNumShards))) {
         LOG_GENERAL(WARNING,
                     "another contract doesn't belong to the same shard with "
                     "current contract");
@@ -1422,7 +1484,7 @@ bool AccountStoreSC<MAP>::ParseCallContractJsonOutput(
                         gasRemained, account->GetBalance(), result, receipt);
 
       if (ENABLE_CHECK_PERFORMANCE_LOG) {
-        LOG_GENERAL(DEBUG, "Executed " << input_message["_tag"] << " in "
+        LOG_GENERAL(INFO, "Executed " << input_message["_tag"] << " in "
                                        << r_timer_end(tpStart)
                                        << " microseconds");
       }

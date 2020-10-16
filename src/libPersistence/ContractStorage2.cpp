@@ -140,8 +140,8 @@ bool ContractStorage2::FetchStateValue(const dev::h160& addr, const bytes& src,
     LOG_GENERAL(INFO, "query for fetch: " << query.DebugString());
   }
 
-  if (query.name() == FIELDS_MAP_DEPTH_INDICATOR) {
-    LOG_GENERAL(WARNING, "query name is " << FIELDS_MAP_DEPTH_INDICATOR);
+  if (query.name() == FIELDS_MAP_DEPTH_INDICATOR || query.name() == SHARDING_INFO_INDICATOR) {
+    LOG_GENERAL(WARNING, "query name is " << query.name());
     return false;
   }
 
@@ -400,6 +400,31 @@ void ContractStorage2::DeleteByIndex(const string& index) {
   }
 }
 
+bool ContractStorage2::FetchContractShardingInfo(const dev::h160& address,
+                                                 Json::Value& sharding_info_json) {
+  std::map<std::string, bytes> sharding_info;
+  // GEORGE: Should this have temp = true?
+  FetchStateDataForContract(sharding_info, address,
+                            SHARDING_INFO_INDICATOR, {}, false);
+
+  string sh_str;
+  const auto key = address.hex() + SCILLA_INDEX_SEPARATOR +
+                    SHARDING_INFO_INDICATOR + SCILLA_INDEX_SEPARATOR;
+  if (sharding_info.size() == 1 &&
+      sharding_info.find(key) != sharding_info.end()) {
+    sh_str = DataConversion::CharArrayToString(sharding_info.at(key));
+  } else {
+    LOG_GENERAL(WARNING, "Cannot find SHARDING_INFO_INDICATOR");
+    return false;
+  }
+
+  if (!sharding_info.empty() && !JSONUtils::GetInstance().convertStrtoJson(
+                                    sh_str, sharding_info_json)) {
+    return false;
+  }
+  return true;
+}
+
 bool ContractStorage2::FetchContractFieldsMapDepth(const dev::h160& address,
                                                    Json::Value& map_depth_json,
                                                    bool temp) {
@@ -503,7 +528,7 @@ bool ContractStorage2::FetchStateJsonForContract(Json::Value& _json,
 
     string vname = fragments.at(1);
 
-    if (vname == FIELDS_MAP_DEPTH_INDICATOR) {
+    if (vname == FIELDS_MAP_DEPTH_INDICATOR || vname == SHARDING_INFO_INDICATOR) {
       continue;
     }
 
@@ -774,8 +799,8 @@ bool ContractStorage2::UpdateStateValue(const dev::h160& addr, const bytes& q,
     return false;
   }
 
-  if (query.name() == FIELDS_MAP_DEPTH_INDICATOR) {
-    LOG_GENERAL(WARNING, "query name is " << FIELDS_MAP_DEPTH_INDICATOR);
+  if (query.name() == FIELDS_MAP_DEPTH_INDICATOR || query.name() == SHARDING_INFO_INDICATOR) {
+    LOG_GENERAL(WARNING, "query name is " << query.name());
     return false;
   }
 
@@ -878,24 +903,139 @@ bool ContractStorage2::UpdateStateValue(const dev::h160& addr, const bytes& q,
 void ContractStorage2::UpdateStateDatasAndToDeletes(
     const dev::h160& addr, const std::map<std::string, bytes>& t_states,
     const std::vector<std::string>& toDeleteIndices, dev::h256& stateHash,
-    bool temp, bool revertible) {
+    bool temp, bool revertible,
+    const uint32_t& shardId, const uint32_t& numShards) {
   if (LOG_SC) {
     LOG_MARKER();
   }
 
   lock_guard<mutex> g(m_stateDataMutex);
 
+  // This function is used in several ways, which are not immediately obvious
+  // by just looking at the function's code. In particular, the function is used to:
+  //    1) merge a contribution from a particular shard (temp && shardId != UNKNOWN_SHARD_ID)
+  //    2) overwrite the existing tempAccountStore with a new one, i.e. a contribution from
+  //        an unknown shard or more than one shard (temp && shard == UNKNOWN_SHARD_ID)
+  //    3) commit some sets into the permanent account store (!temp)
+  // In case (1), we perform a three-way merge according to addr's sharding_info.
   if (temp) {
-    for (const auto& state : t_states) {
-      t_stateDataMap[state.first] = state.second;
-      auto pos = t_indexToBeDeleted.find(state.first);
-      if (pos != t_indexToBeDeleted.end()) {
-        t_indexToBeDeleted.erase(pos);
+    Json::Value sh_info;
+    auto& cs = Contract::ContractStorage2::GetContractStorage();
+    std::chrono::system_clock::time_point tpStart;
+
+    if (ENABLE_CHECK_PERFORMANCE_LOG) {
+        tpStart = r_timer_start();
+    }
+
+    // Case (1) -- three-way merge for a contract with sharding info
+    if (SEMANTIC_SHARDING && t_states.size() > 0 && shardId != UNKNOWN_SHARD_ID
+        && numShards != UNKNOWN_SHARD_ID
+        && cs.FetchContractShardingInfo(addr, sh_info)) {
+      std::chrono::system_clock::time_point genStart;
+      std::chrono::system_clock::time_point callStart;
+      std::chrono::system_clock::time_point writeStart;
+
+      double genTime, callTime;
+
+      if (ENABLE_CHECK_PERFORMANCE_LOG) {
+        genStart = r_timer_start();
+      }
+
+      Json::Value merge_req = Json::objectValue;
+      merge_req["req_type"] = "join";
+      merge_req["shard_id"] = shardId;
+      merge_req["contract_shard"] = AddressShardIndex(addr, numShards);
+      merge_req["num_shards"] = numShards;
+      merge_req["sharding_info"] = sh_info;
+      merge_req["states"] = Json::objectValue;
+
+      for (const auto& state : t_states) {
+        std::map<string, bytes> ancestor_m, temp_m;
+        FetchStateDataForKey(ancestor_m, state.first, false);
+        FetchStateDataForKey(temp_m, state.first, true);
+        auto ancestor = ancestor_m[state.first];
+        auto temp = temp_m[state.first];
+        auto shard = state.second;
+
+        Json::Value st = Json::objectValue;
+        st["ancestor"] = DataConversion::CharArrayToString(ancestor);
+        st["temp"] = DataConversion::CharArrayToString(temp);
+        st["shard"] = DataConversion::CharArrayToString(shard);
+
+        merge_req["states"][state.first] = st;
+      }
+
+    string req_str = JSONUtils::GetInstance().convertJsontoStr(merge_req);
+    Json::Value req = Json::objectValue;
+    req["req"] = req_str;
+
+    if (ENABLE_CHECK_PERFORMANCE_LOG) {
+      genTime = r_timer_end(genStart);
+      callStart = r_timer_start();
+    }
+
+    // Ensure we call the merger for the appropriate Scilla version
+    Account* acc = AccountStore::GetInstance().GetAccount(addr);
+    uint32_t scilla_version;
+    string result = "";
+    bool call_succeeded =
+      acc->GetScillaVersion(scilla_version) &&
+      ScillaClient::GetInstance().CallSharding(scilla_version, req, result);
+
+    if (ENABLE_CHECK_PERFORMANCE_LOG) {
+      callTime = r_timer_end(callStart);
+      writeStart = r_timer_start();
+    }
+    if (LOG_SC) {
+      LOG_GENERAL(INFO, "Merge request\n" << req_str << "\nResponse:\n" << result);
+    }
+
+    // TODO: is there any recovery option if this fails?
+    Json::Value resp;
+    if (call_succeeded
+        && JSONUtils::GetInstance().convertStrtoJson(result, resp)
+        && resp.isMember("states")) {
+      for (const auto& state_key : resp["states"].getMemberNames()) {
+        bytes state_value = DataConversion::StringToCharArray(resp["states"][state_key].asString());
+        t_stateDataMap[state_key] = state_value;
       }
     }
+    else {
+      LOG_GENERAL(FATAL, "Merge request failed!");
+    }
+
+    if (ENABLE_CHECK_PERFORMANCE_LOG) {
+      string timing_str = "";
+      if (resp.isMember("timing") && resp["timing"].isString()) {
+        timing_str = resp["timing"].asString();
+      }
+
+      LOG_GENERAL(INFO, "Merged " << t_states.size() << " account deltas in "
+                        << r_timer_end(tpStart) << " microseconds"
+                        << " (Serialize: " << genTime << ", Call: " << callTime
+                        << " [" << timing_str << "]"
+                        << ", Write: " << r_timer_end(writeStart) << ")" );
+    }
+    // Case (2) -- overwrite
+    } else {
+      for (const auto& state : t_states) {
+        t_stateDataMap[state.first] = state.second;
+        auto pos = t_indexToBeDeleted.find(state.first);
+        if (pos != t_indexToBeDeleted.end()) {
+          t_indexToBeDeleted.erase(pos);
+        }
+      }
+
+      if (ENABLE_CHECK_PERFORMANCE_LOG) {
+        LOG_GENERAL(INFO, "Merged " << t_states.size() << " account deltas in "
+                          << r_timer_end(tpStart) << " microseconds");
+      }
+    }
+
     for (const auto& index : toDeleteIndices) {
       t_indexToBeDeleted.emplace(index);
     }
+  // Case (3) -- commit / overwrite
   } else {
     for (const auto& state : t_states) {
       if (revertible) {
@@ -905,6 +1045,13 @@ void ContractStorage2::UpdateStateDatasAndToDeletes(
           r_stateDataMap[state.first] = {};
         }
       }
+      if (LOG_SC) {
+        LOG_GENERAL(INFO, "Commit " <<
+            "state key: " << state.first <<
+            " old: " << DataConversion::CharArrayToString(m_stateDataMap[state.first]) <<
+            " new: " << DataConversion::CharArrayToString(state.second));
+      }
+
       m_stateDataMap[state.first] = state.second;
       auto pos = m_indexToBeDeleted.find(state.first);
       if (pos != m_indexToBeDeleted.end()) {

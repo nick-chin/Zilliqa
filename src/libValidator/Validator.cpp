@@ -33,10 +33,10 @@ Validator::Validator(Mediator& mediator) : m_mediator(mediator) {}
 Validator::~Validator() {}
 
 bool Validator::VerifyTransaction(const Transaction& tran) {
-  bytes txnData;
-  tran.SerializeCoreFields(txnData, 0);
+  bytes txnDataV;
+  tran.SerializeCoreFields(txnDataV, 0, true);
 
-  return Schnorr::Verify(txnData, tran.GetSignature(), tran.GetSenderPubKey());
+  return Schnorr::Verify(txnDataV, tran.GetSignature(), tran.GetSenderPubKey());
 }
 
 bool Validator::CheckCreatedTransaction(const Transaction& tx,
@@ -155,13 +155,12 @@ bool Validator::CheckCreatedTransactionFromLookup(const Transaction& tx,
   }
 
   if (m_mediator.m_ds->m_mode == DirectoryService::Mode::IDLE) {
-    unsigned int correct_shard_from =
-        Transaction::GetShardIndex(fromAddr, numShards);
-    if (correct_shard_from != shardId) {
+    unsigned int correct_shard = tx.GetShardIndex(numShards);
+    if (correct_shard != shardId) {
       LOG_EPOCH(WARNING, m_mediator.m_currentEpochNum,
                 "This tx is not sharded to me!"
                     << " From Account  = 0x" << fromAddr
-                    << " Correct shard = " << correct_shard_from
+                    << " Correct shard = " << correct_shard
                     << " This shard    = " << m_mediator.m_node->GetShardId());
       error_code = ErrTxnStatus::INCORRECT_SHARD;
       return false;

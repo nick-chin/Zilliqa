@@ -443,6 +443,7 @@ bool Lookup::GenTxnToSend(size_t num_txn,
   for (unsigned int i = 0; i < myGenesisAccounts.size(); i++) {
     const auto& addr = myGenesisAccounts.at(i);
     auto txnShard = Transaction::GetShardIndex(addr, numShards);
+    // auto txnShard = AddressShardIndex(addr, numShards);
     txns.clear();
 
     uint64_t nonce;
@@ -5335,8 +5336,6 @@ bool Lookup::DeleteTxnShardMap(uint32_t shardId) {
     return true;
   }
 
-  lock_guard<mutex> g(m_txnShardMapMutex);
-
   m_txnShardMap[shardId].clear();
 
   return true;
@@ -5380,8 +5379,6 @@ void Lookup::RectifyTxnShardMap(const uint32_t oldNumShards,
 
   map<uint, vector<Transaction>> tempTxnShardMap;
 
-  lock_guard<mutex> g(m_txnShardMapMutex);
-
   LOG_GENERAL(INFO, "Shard dropped or gained, shuffling txn shard map");
   LOG_GENERAL(INFO, "New Shard Size: " << newNumShards
                                        << "  Old Shard Size: " << oldNumShards);
@@ -5392,18 +5389,6 @@ void Lookup::RectifyTxnShardMap(const uint32_t oldNumShards,
     }
     for (const auto& tx : shard.second) {
       unsigned int fromShard = tx.GetShardIndex(newNumShards);
-
-      if (Transaction::GetTransactionType(tx) == Transaction::CONTRACT_CALL) {
-        // if shard do not match directly send to ds
-        unsigned int toShard =
-            Transaction::GetShardIndex(tx.GetToAddr(), newNumShards);
-        if (toShard != fromShard) {
-          // later would be placed in the new ds shard
-          m_txnShardMap[oldNumShards].emplace_back(tx);
-          continue;
-        }
-      }
-
       tempTxnShardMap[fromShard].emplace_back(tx);
     }
   }
@@ -5432,10 +5417,13 @@ void Lookup::SendTxnPacketToNodes(const uint32_t oldNumShards,
     return;
   }
 
-  if (m_mediator.m_disableTxns) {
+  if (m_mediator.m_disableTxns) { // nick - this may need commenting out
     LOG_GENERAL(INFO, "Txns disabled - skipping dispatch to shards");
     return;
   }
+  // Need to lock to prevent receiving transactions between
+  // SetNodeForwardTxnBlock and DeleteTxnShardMap
+  lock_guard<mutex> g(m_txnShardMapMutex);
 
   const uint32_t numShards = newNumShards;
 
@@ -5447,10 +5435,7 @@ void Lookup::SendTxnPacketToNodes(const uint32_t oldNumShards,
   }
 
   if (oldNumShards != newNumShards) {
-    auto rectifyFunc = [this, oldNumShards, newNumShards]() mutable -> void {
       RectifyTxnShardMap(oldNumShards, newNumShards);
-    };
-    DetachedFunction(1, rectifyFunc);
   }
 
   this_thread::sleep_for(
@@ -5459,9 +5444,7 @@ void Lookup::SendTxnPacketToNodes(const uint32_t oldNumShards,
   for (unsigned int i = 0; i < numShards + 1; i++) {
     bytes msg = {MessageType::NODE, NodeInstructionType::FORWARDTXNPACKET};
     bool result = false;
-
     {
-      lock_guard<mutex> g(m_txnShardMapMutex);
       auto transactionNumber = mp[i].size();
 
       LOG_GENERAL(INFO, "Txn number generated: " << transactionNumber);

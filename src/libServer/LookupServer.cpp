@@ -500,7 +500,7 @@ Json::Value LookupServer::CreateTransaction(
       toAccountIsContract = toAccountExist && toAccount->isContract();
     }
 
-    const unsigned int shard = Transaction::GetShardIndex(fromAddr, num_shards);
+    const unsigned int shard = tx.GetShardIndex(num_shards);
     unsigned int mapIndex = shard;
     switch (Transaction::GetTransactionType(tx)) {
       case Transaction::ContractType::NON_CONTRACT:
@@ -546,10 +546,11 @@ Json::Value LookupServer::CreateTransaction(
             Transaction::GetShardIndex(tx.GetToAddr(), num_shards);
         // Use m_sendSCCallsToDS as initial setting
         bool sendToDs = m_mediator.m_lookup->m_sendSCCallsToDS;
+        // bool sendToDs = false;
         if (_json.isMember("priority")) {
           sendToDs = sendToDs || _json["priority"].asBool();
         }
-        if ((to_shard == shard) && !sendToDs) {
+        if (shard != num_shards && !sendToDs) {
           if (tx.GetGasLimit() > SHARD_MICROBLOCK_GAS_LIMIT) {
             throw JsonRpcException(
                 RPC_INVALID_PARAMETER,
@@ -559,8 +560,7 @@ Json::Value LookupServer::CreateTransaction(
             mapIndex = SEND_TYPE::ARCHIVAL_SEND_SHARD;
           }
           ret["Info"] =
-              "Contract Txn, Shards Match of the sender "
-              "and reciever";
+              "Contract Txn, Sent To Shard";
         } else {
           if (tx.GetGasLimit() > DS_MICROBLOCK_GAS_LIMIT) {
             throw JsonRpcException(RPC_INVALID_PARAMETER,
@@ -581,6 +581,13 @@ Json::Value LookupServer::CreateTransaction(
       default:
         throw JsonRpcException(RPC_MISC_ERROR, "Txn type unexpected");
     }
+    // Report sharding information
+    ret["src"] = tx.GetSenderAddr().hex();
+    ret["dst"] = tx.GetToAddr().hex();
+    ret["num_shards"] = num_shards;
+    ret["proc_shard"] = mapIndex;
+    ret["nonce"] = to_string(tx.GetNonce());
+
     if (!targetFunc(tx, mapIndex)) {
       throw JsonRpcException(RPC_DATABASE_ERROR,
                              "Txn could not be added as database exceeded "
